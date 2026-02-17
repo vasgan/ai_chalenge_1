@@ -2,6 +2,7 @@ package com.example.vasganchalenge1.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,15 +15,34 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+
+@Composable
+fun MainRoute(
+    vm: MainViewModel,
+    onOpenSettings: () -> Unit
+) {
+    val state = vm.state.collectAsState().value
+
+    MainScreen(
+        state = state,
+        onInputChange = vm::onInputChange,
+        onSendClick = vm::onSendClick,
+        onOpenSettings = onOpenSettings
+    )
+}
 
 @Composable
 fun MainScreen(
     state: MainUiState,
     onInputChange: (String) -> Unit,
-    onSendClick: () -> Unit
+    onSendClick: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     Column(
     modifier = Modifier
@@ -30,11 +50,19 @@ fun MainScreen(
     .padding(16.dp),
     verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            text = "Запрос на сервер",
-            style = MaterialTheme.typography.titleLarge
-        )
-
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Запрос на сервер",
+                style = MaterialTheme.typography.titleLarge
+            )
+            TextButton(onClick = onOpenSettings) {
+                Text("Настройки")
+            }
+        }
         OutlinedTextField(
             value = state.input,
             onValueChange = onInputChange,

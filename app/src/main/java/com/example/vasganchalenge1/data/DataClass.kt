@@ -2,7 +2,9 @@ package com.example.vasganchalenge1.data
 
 data class ChatRequest(
     val model: String,
-    val messages: List<Message>
+    val messages: List<Message>,
+    val stop: String?,
+    val max_tokens: Int?
 )
 
 data class Message(
