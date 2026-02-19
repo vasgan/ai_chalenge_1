@@ -34,6 +34,7 @@ fun AppNavGraph() {
                 onBack = { navController.popBackStack() },
                 onSave = { vm.save { navController.popBackStack() } },
                 onEnabledChange = vm::setEnabled,
+                onTemperatureChange = vm::setTemperature,
                 onFormatChange = vm::setFormat,
                 onLengthLimitChange = vm::setLengthLimit,
                 onStopChange = vm::setStopSequence,

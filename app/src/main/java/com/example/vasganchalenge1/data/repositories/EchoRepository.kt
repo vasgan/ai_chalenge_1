@@ -20,7 +20,8 @@ class EchoRepository  @Inject constructor(
                     Message("user", text),
                ),
                 stop = settings.stopSequence,
-                max_tokens = settings.maxTokens
+                max_tokens = settings.maxTokens,
+                temperature = settings.temperature.toDouble()
             )
         )
         else api.chatCompletion(
@@ -30,7 +31,8 @@ class EchoRepository  @Inject constructor(
                     Message("user", text),
                 ),
                 stop = null,
-                max_tokens = null
+                max_tokens = null,
+                temperature = null
             )
         )
         return response.choices.firstOrNull()?.message?.content ?: "No response"

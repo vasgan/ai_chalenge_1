@@ -18,7 +18,8 @@ data class SettingsUiState(
     val format: String = "",
     val lengthLimit: String = "",
     val stopSequence: String = "###END###",
-    val maxTokensText: String = "200"
+    val maxTokensText: String = "200",
+    val temperature: String = "0.7"
 )
 
 @HiltViewModel
@@ -37,7 +38,8 @@ class SettingsViewModel @Inject constructor(
                     format = s.format,
                     lengthLimit = s.lengthLimit,
                     stopSequence = s.stopSequence,
-                    maxTokensText = s.maxTokens.toString()
+                    maxTokensText = s.maxTokens.toString(),
+                    temperature = s.temperature
                 )
             }
         }
@@ -48,7 +50,7 @@ class SettingsViewModel @Inject constructor(
     fun setLengthLimit(v: String) = _state.update { it.copy(lengthLimit = v) }
     fun setStopSequence(v: String) = _state.update { it.copy(stopSequence = v) }
     fun setMaxTokensText(v: String) = _state.update { it.copy(maxTokensText = v.filter { ch -> ch.isDigit() }) }
-
+    fun setTemperature(v: String) = _state.update { it.copy(temperature = v) }
     fun save(onDone: () -> Unit) {
         val maxTokens = _state.value.maxTokensText.toIntOrNull() ?: 200
         viewModelScope.launch {
@@ -58,7 +60,8 @@ class SettingsViewModel @Inject constructor(
                     format = _state.value.format,
                     lengthLimit = _state.value.lengthLimit,
                     stopSequence = _state.value.stopSequence,
-                    maxTokens = maxTokens
+                    maxTokens = maxTokens,
+                    temperature = _state.value.temperature
                 )
             )
             onDone()

@@ -20,7 +20,8 @@ data class AppSettings(
     val format: String = "",
     val lengthLimit: String = "",
     val stopSequence: String = "###END###",
-    val maxTokens: Int = 200
+    val maxTokens: Int = 200,
+    val temperature: String = ""
 )
 
 @Singleton
@@ -33,6 +34,7 @@ class SettingsRepository @Inject constructor(
         val lengthLimit = stringPreferencesKey("length_limit")
         val stopSequence = stringPreferencesKey("stop_sequence")
         val maxTokens = intPreferencesKey("max_tokens")
+        val temperature = stringPreferencesKey("temperature")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -41,7 +43,8 @@ class SettingsRepository @Inject constructor(
             format = prefs[Keys.format] ?: "",
             lengthLimit = prefs[Keys.lengthLimit] ?: "",
             stopSequence = prefs[Keys.stopSequence] ?: "###END###",
-            maxTokens = prefs[Keys.maxTokens] ?: 200
+            maxTokens = prefs[Keys.maxTokens] ?: 200,
+            temperature = prefs[Keys.temperature] ?: "0.7"
         )
     }
 
@@ -52,6 +55,7 @@ class SettingsRepository @Inject constructor(
             prefs[Keys.lengthLimit] = settings.lengthLimit
             prefs[Keys.stopSequence] = settings.stopSequence
             prefs[Keys.maxTokens] = settings.maxTokens
+            prefs[Keys.temperature] = settings.temperature
         }
     }
 }

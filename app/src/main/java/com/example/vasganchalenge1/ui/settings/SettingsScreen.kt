@@ -25,6 +25,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onSave: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
+    onTemperatureChange: (String) -> Unit,
     onFormatChange: (String) -> Unit,
     onLengthLimitChange: (String) -> Unit,
     onStopChange: (String) -> Unit,
@@ -57,7 +58,14 @@ fun SettingsScreen(
                 Text("Режим запуска с условиями:")
                 Switch(checked = state.enabled, onCheckedChange = onEnabledChange)
             }
-
+            OutlinedTextField(
+                value = state.temperature,
+                onValueChange = onTemperatureChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Температура") },
+                placeholder = { Text("Например: 0.7") },
+                enabled = state.enabled
+            )
             OutlinedTextField(
                 value = state.format,
                 onValueChange = onFormatChange,
