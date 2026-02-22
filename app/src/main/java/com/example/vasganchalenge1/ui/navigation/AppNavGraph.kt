@@ -31,6 +31,8 @@ fun AppNavGraph() {
 
             SettingsScreen(
                 state = state,
+                modelOptions = vm.modelOptions,
+                onModelChange = vm::setModel,
                 onBack = { navController.popBackStack() },
                 onSave = { vm.save { navController.popBackStack() } },
                 onEnabledChange = vm::setEnabled,

@@ -15,6 +15,7 @@ import javax.inject.Inject
 
 data class SettingsUiState(
     val enabled: Boolean = false,
+    val model: String = "gpt-4o-mini", // NEW
     val format: String = "",
     val lengthLimit: String = "",
     val stopSequence: String = "###END###",
@@ -26,7 +27,7 @@ data class SettingsUiState(
 class SettingsViewModel @Inject constructor(
     private val repo: SettingsRepository
 ) : ViewModel() {
-
+    val modelOptions = listOf("gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1") // NEW (можешь поменять)
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
@@ -35,6 +36,7 @@ class SettingsViewModel @Inject constructor(
             repo.settingsFlow.collect { s ->
                 _state.value = SettingsUiState(
                     enabled = s.enabled,
+                    model = s.model, // NEW
                     format = s.format,
                     lengthLimit = s.lengthLimit,
                     stopSequence = s.stopSequence,
@@ -45,6 +47,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setModel(v: String) = _state.update { it.copy(model = v) }
     fun setEnabled(v: Boolean) = _state.update { it.copy(enabled = v) }
     fun setFormat(v: String) = _state.update { it.copy(format = v) }
     fun setLengthLimit(v: String) = _state.update { it.copy(lengthLimit = v) }
@@ -57,6 +60,7 @@ class SettingsViewModel @Inject constructor(
             repo.save(
                 AppSettings(
                     enabled = _state.value.enabled,
+                    model = _state.value.model, // NEW
                     format = _state.value.format,
                     lengthLimit = _state.value.lengthLimit,
                     stopSequence = _state.value.stopSequence,

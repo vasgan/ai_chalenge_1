@@ -9,11 +9,11 @@ import javax.inject.Inject
 class EchoRepository  @Inject constructor(
     private val api: ApiService
 ) {
-    suspend fun send(text: String, settings: AppSettings): String {
+    suspend fun send(text: String, settings: AppSettings): DataResponse {
         val response = if (settings.enabled)
          api.chatCompletion(
             ChatRequest(
-                model = "gpt-4o-mini",
+                model = settings.model,
                 messages = listOf(
                     Message("system", settings.format + ". " + settings.lengthLimit + ". "
                     + "At the very end of the response, you MUST write exactly this string: " + settings.stopSequence),
@@ -35,6 +35,8 @@ class EchoRepository  @Inject constructor(
                 temperature = null
             )
         )
-        return response.choices.firstOrNull()?.message?.content ?: "No response"
+        return DataResponse(response.choices.firstOrNull()?.message?.content ,  response.usage?.prompt_tokens, response.usage?.completion_tokens)
     }
 }
+
+data class DataResponse(val content: String?, val tokensIn: Int?, val tokenOut: Int?)
