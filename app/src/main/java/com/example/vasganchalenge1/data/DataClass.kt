@@ -27,3 +27,11 @@ data class Usage(
 data class Choice(
     val message: Message
 )
+
+data class UiChatMessage(
+    val id: Long = System.currentTimeMillis(),
+    val role: Role,
+    val text: String
+)
+
+enum class Role { USER, ASSISTANT }

@@ -2,6 +2,8 @@ package com.example.vasganchalenge1.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.vasganchalenge1.data.Role
+import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.repositories.AppSettings
 import com.example.vasganchalenge1.data.repositories.EchoRepository
 import com.example.vasganchalenge1.data.repositories.SettingsRepository
@@ -32,34 +34,50 @@ class MainViewModel @Inject constructor(
 
     fun onSendClick() {
         val text = _state.value.input.trim()
-        val settings = settings.value
+        val currentSettings = settings.value
+
         if (text.isEmpty()) {
             _state.value = _state.value.copy(error = "Введите текст")
             return
         }
-        val start = android.os.SystemClock.elapsedRealtime()
+
+        // 1) добавляем user-сообщение сразу
+        val userMsg = UiChatMessage(role = Role.USER, text = text)
+
+        _state.value = _state.value.copy(
+            input = "",
+            isLoading = true,
+            error = null,
+            messages = _state.value.messages + userMsg
+        )
+
         viewModelScope.launch {
-            _state.value = _state.value.copy(isLoading = true, error = null)
+            val start = android.os.SystemClock.elapsedRealtime()
+
             runCatching {
-                repo.send(text, settings)
+                repo.send(text, currentSettings, _state.value.messages)
             }.onSuccess { result ->
                 val latencyMs = android.os.SystemClock.elapsedRealtime() - start
-                val cost = result.tokensIn?.let { result.tokenOut?.let { completionTokens -> calcCostUsd(settings.model, it, completionTokens) } }
-                val metric = result.tokenOut?.let {
-                    result.tokensIn?.let { it1 ->
-                        RunMetric(
-                            model = settings.model,
-                            latencyMs = latencyMs,
-                            totalTokens = it1 + it,
-                            costUsd = cost
-                        )
-                    }
-                }
+
+                val tokensIn = result.tokensIn ?: 0
+                val tokensOut = result.tokenOut ?: 0
+                val total = tokensIn + tokensOut
+                val cost = calcCostUsd(currentSettings.model, tokensIn, tokensOut)
+
+                val metric = RunMetric(
+                    model = currentSettings.model,
+                    latencyMs = latencyMs,
+                    totalTokens = total,
+                    costUsd = cost
+                )
+
+                val assistantText = result.content.orEmpty()
+                val assistantMsg = UiChatMessage(role = Role.ASSISTANT, text = assistantText)
+
                 _state.value = _state.value.copy(
                     isLoading = false,
-                    output = result,
-                    time = latencyMs,
-                    metrics = (listOf(metric) + _state.value.metrics) as List<RunMetric> // добавляем сверху
+                    messages = _state.value.messages + assistantMsg,
+                    metrics = listOf(metric) + _state.value.metrics
                 )
             }.onFailure { e ->
                 _state.value = _state.value.copy(

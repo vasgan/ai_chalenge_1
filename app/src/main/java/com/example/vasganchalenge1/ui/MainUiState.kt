@@ -1,5 +1,6 @@
 package com.example.vasganchalenge1.ui
 
+import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.repositories.DataResponse
 
 data class MainUiState(
@@ -8,5 +9,7 @@ data class MainUiState(
     val time : Long = 0L,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val metrics: List<RunMetric> = emptyList() // NEW
+    val metrics: List<RunMetric> = emptyList(), // NEW
+    val messages: List<UiChatMessage> = emptyList(), // NEW
+
 )

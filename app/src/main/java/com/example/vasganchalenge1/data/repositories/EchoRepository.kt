@@ -2,6 +2,8 @@ package com.example.vasganchalenge1.data.repositories
 
 import com.example.vasganchalenge1.data.ChatRequest
 import com.example.vasganchalenge1.data.Message
+import com.example.vasganchalenge1.data.Role
+import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.network.ApiService
 import com.example.vasganchalenge1.data.network.EchoRequest
 import javax.inject.Inject
@@ -9,33 +11,44 @@ import javax.inject.Inject
 class EchoRepository  @Inject constructor(
     private val api: ApiService
 ) {
-    suspend fun send(text: String, settings: AppSettings): DataResponse {
-        val response = if (settings.enabled)
-         api.chatCompletion(
+    suspend fun send(text: String, settings: AppSettings, history: List<UiChatMessage>): DataResponse {
+        val messages = mutableListOf<Message>()
+        val mainMessage = if (settings.enabled) {
+            listOf(
+                Message(
+                    "system",
+                    "${settings.format}. ${settings.lengthLimit}."
+                ),
+                Message("user", text)
+            )
+        } else {
+            listOf(Message("user", text))
+        }
+        val historyMessages = history
+            .takeLast(10) // ⚠️ ограничиваем контекст!
+            .map {
+                Message(
+                    role = if (it.role == Role.USER) "user" else "assistant",
+                    content = it.text
+                )
+            }
+        messages.addAll(historyMessages)
+        messages.addAll(mainMessage)
+        val response = api.chatCompletion(
             ChatRequest(
                 model = settings.model,
-                messages = listOf(
-                    Message("system", settings.format + ". " + settings.lengthLimit + ". "
-                    + "At the very end of the response, you MUST write exactly this string: " + settings.stopSequence),
-                    Message("user", text),
-               ),
-                stop = settings.stopSequence,
-                max_tokens = settings.maxTokens,
-                temperature = settings.temperature.toDouble()
+                messages = messages,
+                stop = if (settings.enabled) settings.stopSequence else null,
+                max_tokens = if (settings.enabled) settings.maxTokens else null,
+                temperature = if (settings.enabled) settings.temperature.toDouble() else null
             )
         )
-        else api.chatCompletion(
-            ChatRequest(
-                model = "gpt-4o-mini",
-                messages = listOf(
-                    Message("user", text),
-                ),
-                stop = null,
-                max_tokens = null,
-                temperature = null
-            )
+
+        return DataResponse(
+            content = response.choices.firstOrNull()?.message?.content,
+            tokensIn = response.usage?.prompt_tokens,
+            tokenOut = response.usage?.completion_tokens
         )
-        return DataResponse(response.choices.firstOrNull()?.message?.content ,  response.usage?.prompt_tokens, response.usage?.completion_tokens)
     }
 }
 
