@@ -1,5 +1,7 @@
 package com.example.vasganchalenge1.data
 
+import com.squareup.moshi.JsonClass
+
 data class ChatRequest(
     val model: String,
     val messages: List<Message>,

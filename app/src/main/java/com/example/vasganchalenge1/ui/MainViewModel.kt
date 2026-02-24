@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.repositories.AppSettings
+import com.example.vasganchalenge1.data.repositories.ChatHistoryRepository
 import com.example.vasganchalenge1.data.repositories.EchoRepository
 import com.example.vasganchalenge1.data.repositories.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,8 +17,17 @@ import javax.inject.Inject
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val repo: EchoRepository,
+    private val historyRepo: ChatHistoryRepository,
     settingsRepo: SettingsRepository
 ) : ViewModel() {
+
+    init {
+        viewModelScope.launch {
+            historyRepo.historyFlow.collect { savedMessages ->
+                _state.value = _state.value.copy(messages = savedMessages)
+            }
+        }
+    }
 
     private var _state = kotlinx.coroutines.flow.MutableStateFlow(MainUiState())
     val state = _state
@@ -73,12 +83,15 @@ class MainViewModel @Inject constructor(
 
                 val assistantText = result.content.orEmpty()
                 val assistantMsg = UiChatMessage(role = Role.ASSISTANT, text = assistantText)
+                val updatedMessages = _state.value.messages + assistantMsg
 
                 _state.value = _state.value.copy(
                     isLoading = false,
                     messages = _state.value.messages + assistantMsg,
                     metrics = listOf(metric) + _state.value.metrics
                 )
+
+                historyRepo.saveHistory(updatedMessages)
             }.onFailure { e ->
                 _state.value = _state.value.copy(
                     isLoading = false,
