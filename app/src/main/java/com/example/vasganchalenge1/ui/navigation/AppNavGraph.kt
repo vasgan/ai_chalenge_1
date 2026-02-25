@@ -9,7 +9,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.vasganchalenge1.ui.ChatViewModel
-import com.example.vasganchalenge1.ui.MainScreen
+import com.example.vasganchalenge1.ui.ChatScreen
 import com.example.vasganchalenge1.ui.chats.ChatListScreen
 import com.example.vasganchalenge1.ui.chats.ChatListViewModel
 import com.example.vasganchalenge1.ui.settings.SettingsScreen
@@ -33,7 +33,7 @@ fun AppNavGraph() {
                 },
                 onCreateChat = { vm.createChat() },
                 onDeleteChat = { chatId -> vm.deleteChat(chatId) },
-              //  onOpenSettings = { navController.navigate(Routes.Settings) } // если хочешь кнопку настроек и тут
+              //  onOpenSettings = { ... } // настройки теперь привязаны к chatId
             )
         }
 
@@ -45,17 +45,20 @@ fun AppNavGraph() {
             val vm = hiltViewModel<ChatViewModel>()
             val state = vm.state.collectAsState().value
 
-            MainScreen( // это твой переработанный MainScreen (чат)
+            ChatScreen( // это твой переработанный MainScreen (чат)
                 state = state,
                 onInputChange = vm::onInputChange,
                 onSendClick = vm::onSendClick,
           //      onBack = { navController.popBackStack() },
-                onOpenSettings = { navController.navigate(Routes.Settings) }
+                onOpenSettings = { navController.navigate(Routes.settings(state.chatId)) }
             )
         }
 
         // 3) Settings — оставляем как есть
-        composable(Routes.Settings) {
+        composable(
+            route = "${Routes.Settings}/{chatId}",
+            arguments = listOf(navArgument("chatId") { type = NavType.StringType })
+        ) {
             val vm = hiltViewModel<SettingsViewModel>()
             val state = vm.state.collectAsState().value
 

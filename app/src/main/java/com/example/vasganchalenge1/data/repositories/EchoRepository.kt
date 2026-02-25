@@ -25,7 +25,7 @@ class EchoRepository  @Inject constructor(
             listOf(Message("user", text))
         }
         val historyMessages = history
-            .takeLast(10) // ⚠️ ограничиваем контекст!
+            .takeLast(50) // ⚠️ ограничиваем контекст!
             .map {
                 Message(
                     role = if (it.role == Role.USER) "user" else "assistant",
@@ -43,7 +43,11 @@ class EchoRepository  @Inject constructor(
                 temperature = if (settings.enabled) settings.temperature.toDouble() else null
             )
         )
-
+        response.usage?.let {
+            if (it.total_tokens > 10000) {
+                throw IllegalStateException("401 TooManyTokens")
+            }
+        }
         return DataResponse(
             content = response.choices.firstOrNull()?.message?.content,
             tokensIn = response.usage?.prompt_tokens,

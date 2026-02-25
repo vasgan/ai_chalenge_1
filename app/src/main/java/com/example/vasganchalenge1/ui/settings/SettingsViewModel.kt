@@ -1,9 +1,10 @@
 package com.example.vasganchalenge1.ui.settings
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
 import com.example.vasganchalenge1.data.repositories.AppSettings
-import com.example.vasganchalenge1.data.repositories.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,15 +26,18 @@ data class SettingsUiState(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val repo: SettingsRepository
+    private val store: ChatStoreRepository,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+    private val chatId: String = checkNotNull(savedStateHandle["chatId"])
     val modelOptions = listOf("gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1") // NEW (можешь поменять)
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
     init {
         viewModelScope.launch {
-            repo.settingsFlow.collect { s ->
+            store.chatsFlow.collect { chats ->
+                val s = chats.firstOrNull { it.id == chatId }?.settings ?: AppSettings()
                 _state.value = SettingsUiState(
                     enabled = s.enabled,
                     model = s.model, // NEW
@@ -57,15 +61,18 @@ class SettingsViewModel @Inject constructor(
     fun save(onDone: () -> Unit) {
         val maxTokens = _state.value.maxTokensText.toIntOrNull() ?: 200
         viewModelScope.launch {
-            repo.save(
-                AppSettings(
-                    enabled = _state.value.enabled,
-                    model = _state.value.model, // NEW
-                    format = _state.value.format,
-                    lengthLimit = _state.value.lengthLimit,
-                    stopSequence = _state.value.stopSequence,
-                    maxTokens = maxTokens,
-                    temperature = _state.value.temperature
+            val existingChat = store.getChat(chatId) ?: return@launch
+            store.updateChat(
+                existingChat.copy(
+                    settings = AppSettings(
+                        enabled = _state.value.enabled,
+                        model = _state.value.model,
+                        format = _state.value.format,
+                        lengthLimit = _state.value.lengthLimit,
+                        stopSequence = _state.value.stopSequence,
+                        maxTokens = maxTokens,
+                        temperature = _state.value.temperature
+                    )
                 )
             )
             onDone()

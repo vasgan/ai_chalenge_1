@@ -6,4 +6,5 @@ object Routes {
     const val Settings = "settings"
 
     fun chat(chatId: String) = "$Chat/$chatId"
+    fun settings(chatId: String) = "$Settings/$chatId"
 }

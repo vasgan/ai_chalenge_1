@@ -1,5 +1,6 @@
 package com.example.vasganchalenge1.data
 
+import com.example.vasganchalenge1.data.repositories.AppSettings
 import java.util.UUID
 
 data class ChatRequest(
@@ -41,6 +42,7 @@ data class RunMetric(
 data class Chat(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "Новый чат",
+    val settings: AppSettings = AppSettings(),
     val messages: List<UiChatMessage> = emptyList(),
     val metrics: List<RunMetric> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),

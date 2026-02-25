@@ -2,7 +2,6 @@ package com.example.vasganchalenge1.di
 
 import com.example.vasganchalenge1.data.network.ApiService
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn

@@ -7,14 +7,10 @@ import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.repositories.AppSettings
-import com.example.vasganchalenge1.data.repositories.ChatHistoryRepository
 import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
 import com.example.vasganchalenge1.data.repositories.EchoRepository
-import com.example.vasganchalenge1.data.repositories.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -22,7 +18,6 @@ import javax.inject.Inject
 class ChatViewModel @Inject constructor(
     private val repo: EchoRepository,
     private val store: ChatStoreRepository,
-    settingsRepo: SettingsRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -30,12 +25,8 @@ class ChatViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(ChatUiState(chatId = chatId))
     val state = _state
-
-    val settings = settingsRepo.settingsFlow.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.Eagerly,
-        initialValue = AppSettings()
-    )
+    private val _settings = MutableStateFlow(AppSettings())
+    val settings = _settings
 
     init {
         viewModelScope.launch {
@@ -46,6 +37,7 @@ class ChatViewModel @Inject constructor(
                     messages = chat.messages,
                     metrics = chat.metrics
                 )
+                _settings.value = chat.settings
             }
         }
     }
@@ -87,11 +79,12 @@ class ChatViewModel @Inject constructor(
                 val tokensIn = result.tokensIn ?: 0
                 val tokensOut = result.tokenOut ?: 0
                 val cost = calcCostUsd(currentSettings.model, tokensIn, tokensOut)
+                val previousTotalUsageTokens = _state.value.metrics.firstOrNull()?.totalUsageToken ?: 0
                 val metric = RunMetric(
                     model = currentSettings.model,
                     latencyMs = latencyMs,
                     totalTokens = tokensIn + tokensOut,
-                    totalUsageToken = if (_state.value.metrics.isNotEmpty()) _state.value.metrics.last().totalUsageToken else 0 + tokensOut + tokensIn,
+                    totalUsageToken = previousTotalUsageTokens + tokensIn + tokensOut,
                     costUsd = cost
                 )
 
