@@ -1,6 +1,6 @@
 package com.example.vasganchalenge1.data
 
-import com.squareup.moshi.JsonClass
+import java.util.UUID
 
 data class ChatRequest(
     val model: String,
@@ -28,6 +28,23 @@ data class Usage(
 
 data class Choice(
     val message: Message
+)
+
+data class RunMetric(
+    val model: String,
+    val latencyMs: Long,
+    val totalTokens: Int,
+    val totalUsageToken: Int,
+    val costUsd: Double?
+)
+
+data class Chat(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String = "Новый чат",
+    val messages: List<UiChatMessage> = emptyList(),
+    val metrics: List<RunMetric> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 data class UiChatMessage(

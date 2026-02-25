@@ -1,6 +1,9 @@
 package com.example.vasganchalenge1.ui.navigation
 
 object Routes {
-    const val Main = "main"
+    const val ChatList = "chat_list"
+    const val Chat = "chat"
     const val Settings = "settings"
+
+    fun chat(chatId: String) = "$Chat/$chatId"
 }

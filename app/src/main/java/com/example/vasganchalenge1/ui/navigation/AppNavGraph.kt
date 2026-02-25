@@ -3,12 +3,15 @@ package com.example.vasganchalenge1.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.vasganchalenge1.ui.MainRoute
+import androidx.navigation.navArgument
+import com.example.vasganchalenge1.ui.ChatViewModel
 import com.example.vasganchalenge1.ui.MainScreen
-import com.example.vasganchalenge1.ui.MainViewModel
+import com.example.vasganchalenge1.ui.chats.ChatListScreen
+import com.example.vasganchalenge1.ui.chats.ChatListViewModel
 import com.example.vasganchalenge1.ui.settings.SettingsScreen
 import com.example.vasganchalenge1.ui.settings.SettingsViewModel
 
@@ -16,15 +19,42 @@ import com.example.vasganchalenge1.ui.settings.SettingsViewModel
 fun AppNavGraph() {
     val navController = rememberNavController()
 
-    NavHost(navController, startDestination = Routes.Main) {
-        composable(Routes.Main) {
-            val vm = hiltViewModel<MainViewModel>()
-            MainRoute(
-                vm = vm,
+    NavHost(navController, startDestination = Routes.ChatList) {
+
+        // 1) Список чатов
+        composable(Routes.ChatList) {
+            val vm = hiltViewModel<ChatListViewModel>()
+            val state = vm.state.collectAsState().value
+
+            ChatListScreen(
+                state = state,
+                onOpenChat = { chatId ->
+                    navController.navigate(Routes.chat(chatId))
+                },
+                onCreateChat = { vm.createChat() },
+                onDeleteChat = { chatId -> vm.deleteChat(chatId) },
+              //  onOpenSettings = { navController.navigate(Routes.Settings) } // если хочешь кнопку настроек и тут
+            )
+        }
+
+        // 2) Экран конкретного чата
+        composable(
+            route = "${Routes.Chat}/{chatId}",
+            arguments = listOf(navArgument("chatId") { type = NavType.StringType })
+        ) {
+            val vm = hiltViewModel<ChatViewModel>()
+            val state = vm.state.collectAsState().value
+
+            MainScreen( // это твой переработанный MainScreen (чат)
+                state = state,
+                onInputChange = vm::onInputChange,
+                onSendClick = vm::onSendClick,
+          //      onBack = { navController.popBackStack() },
                 onOpenSettings = { navController.navigate(Routes.Settings) }
             )
         }
 
+        // 3) Settings — оставляем как есть
         composable(Routes.Settings) {
             val vm = hiltViewModel<SettingsViewModel>()
             val state = vm.state.collectAsState().value

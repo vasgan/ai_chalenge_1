@@ -33,11 +33,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.vasganchalenge1.data.Role
+import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
 
 @Composable
 fun MainRoute(
-    vm: MainViewModel,
+    vm: ChatViewModel,
     onOpenSettings: () -> Unit
 ) {
     val state = vm.state.collectAsState().value
@@ -52,7 +53,7 @@ fun MainRoute(
 
 @Composable
 fun MainScreen(
-    state: MainUiState,
+    state: ChatUiState,
     onInputChange: (String) -> Unit,
     onSendClick: () -> Unit,
     onOpenSettings: () -> Unit
@@ -162,7 +163,7 @@ private fun MetricsHeader(metrics: List<RunMetric>) {
     val priceText = last.costUsd?.let { "$" + String.format("%.6f", it) } ?: "—"
 
     Text(
-        text = "Model: ${last.model} • Time: ${last.latencyMs}ms • Tokens: ${last.totalTokens} • Price: $priceText",
+        text = "Model: ${last.model} • Time: ${last.latencyMs}ms • Tokens: ${last.totalTokens} • Price: $priceText  • Total usage tokens: ${last.totalUsageToken}",
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         style = MaterialTheme.typography.bodyMedium
     )
@@ -188,45 +189,6 @@ private fun ChatBubble(msg: UiChatMessage) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(msg.text, style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-    }
-}
-
-@Composable
-fun MetricsTable(metrics: List<RunMetric>, modifier: Modifier = Modifier) {
-    val fmt = remember { java.text.DecimalFormat("0.000000") }
-
-    Column(modifier = modifier.fillMaxWidth()) {
-
-        // Header
-        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-            Text("Model", Modifier.weight(1.4f))
-            Text("Time", Modifier.weight(0.7f))
-            Text("Tokens", Modifier.weight(0.8f))
-            Text("Price", Modifier.weight(0.8f))
-        }
-        Divider()
-
-        if (metrics.isEmpty()) {
-            Text("Пока нет запусков", Modifier.padding(vertical = 10.dp))
-            return
-        }
-
-        androidx.compose.foundation.lazy.LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 220.dp) // чтобы не съедало весь экран
-        ) {
-            items(metrics.size) { i ->
-                val m = metrics[i]
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    Text(m.model, Modifier.weight(1.4f))
-                    Text("${m.latencyMs}ms", Modifier.weight(0.7f))
-                    Text("${m.totalTokens}", Modifier.weight(0.8f))
-                    Text("$${fmt.format(m.costUsd)}", Modifier.weight(0.8f))
-                }
-                Divider()
             }
         }
     }
