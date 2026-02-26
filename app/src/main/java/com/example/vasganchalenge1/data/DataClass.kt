@@ -43,6 +43,7 @@ data class Chat(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "Новый чат",
     val settings: AppSettings = AppSettings(),
+    val summary: String = "",
     val messages: List<UiChatMessage> = emptyList(),
     val metrics: List<RunMetric> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),

@@ -17,6 +17,7 @@ private val Context.dataStore by preferencesDataStore(name = "app_settings")
 
 data class AppSettings(
     val enabled: Boolean = false,
+    val summaryEnabled: Boolean = true,
     val model: String = "gpt-4o-mini",
     val format: String = "",
     val lengthLimit: String = "",
@@ -31,6 +32,7 @@ class SettingsRepository @Inject constructor(
 ) {
     private object Keys {
         val enabled = booleanPreferencesKey("enabled")
+        val summaryEnabled = booleanPreferencesKey("summary_enabled")
         val format = stringPreferencesKey("format")
         val model = stringPreferencesKey("model") // NEW
         val lengthLimit = stringPreferencesKey("length_limit")
@@ -42,6 +44,7 @@ class SettingsRepository @Inject constructor(
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
             enabled = prefs[Keys.enabled] ?: false,
+            summaryEnabled = prefs[Keys.summaryEnabled] ?: true,
             format = prefs[Keys.format] ?: "",
             model = prefs[Keys.model] ?: "gpt-4o-mini", // NEW
             lengthLimit = prefs[Keys.lengthLimit] ?: "",
@@ -54,6 +57,7 @@ class SettingsRepository @Inject constructor(
     suspend fun save(settings: AppSettings) {
         context.dataStore.edit { prefs ->
             prefs[Keys.enabled] = settings.enabled
+            prefs[Keys.summaryEnabled] = settings.summaryEnabled
             prefs[Keys.model] = settings.model // NEW
             prefs[Keys.format] = settings.format
             prefs[Keys.lengthLimit] = settings.lengthLimit

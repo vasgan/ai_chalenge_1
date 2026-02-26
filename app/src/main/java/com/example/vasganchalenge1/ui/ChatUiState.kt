@@ -6,6 +6,7 @@ import com.example.vasganchalenge1.data.UiChatMessage
 data class ChatUiState(
     val chatId: String = "",
     val title: String = "",
+    val summary: String = "",
     val input: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,

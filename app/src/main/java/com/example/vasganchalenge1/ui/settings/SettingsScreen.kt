@@ -34,6 +34,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onSave: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
+    onSummaryEnabledChange: (Boolean) -> Unit,
     onTemperatureChange: (String) -> Unit,
     onFormatChange: (String) -> Unit,
     onLengthLimitChange: (String) -> Unit,
@@ -66,6 +67,26 @@ fun SettingsScreen(
             ) {
                 Text("Режим запуска с условиями:")
                 Switch(checked = state.enabled, onCheckedChange = onEnabledChange)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Включить Summary")
+                    if (!state.canEditSummaryEnabled) {
+                        Text(
+                            text = "Можно изменить только до первого сообщения",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                Switch(
+                    checked = state.summaryEnabled,
+                    onCheckedChange = onSummaryEnabledChange,
+                    enabled = state.canEditSummaryEnabled
+                )
             }
             var expanded by remember { mutableStateOf(false) }
 

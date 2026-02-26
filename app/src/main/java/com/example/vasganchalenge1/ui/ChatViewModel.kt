@@ -20,6 +20,12 @@ class ChatViewModel @Inject constructor(
     private val store: ChatStoreRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+    // Сделай план по созданию Android приложения
+    //можешь по этим критериям подобрать идею приложение нужно разработать
+    //Давай разберем финансовое приложение
+    //Можешь разбить его на 23 задачи
+    //какие риски могут возникнуть при разработке этого приложения
+    // придумай на каждый риск три способа решения риска
 
     private val chatId: String = checkNotNull(savedStateHandle["chatId"])
 
@@ -34,6 +40,7 @@ class ChatViewModel @Inject constructor(
                 val chat = chats.firstOrNull { it.id == chatId } ?: return@collect
                 _state.value = _state.value.copy(
                     title = chat.title,
+                    summary = chat.summary,
                     messages = chat.messages,
                     metrics = chat.metrics
                 )
@@ -57,23 +64,48 @@ class ChatViewModel @Inject constructor(
 
         // добавляем user локально
         val userMsg = UiChatMessage(role = Role.USER, text = text)
-        val preMessages = _state.value.messages + userMsg
+        val preMessagesRaw = _state.value.messages + userMsg
 
         _state.value = _state.value.copy(
             input = "",
             isLoading = true,
             error = null,
-            messages = preMessages
+            messages = preMessagesRaw
         )
 
         viewModelScope.launch {
+            val currentSummary = _state.value.summary
+            val preCompactResult = runCatching {
+                compactHistoryIfNeeded(
+                    summary = currentSummary,
+                    messages = preMessagesRaw,
+                    settings = currentSettings
+                )
+            }.getOrElse { e ->
+                _state.value = _state.value.copy(
+                    isLoading = false,
+                    error = e.message ?: "Ошибка обновления summary"
+                )
+                return@launch
+            }
+            val (preSummary, preMessages) = preCompactResult
+
+            if (preSummary != currentSummary || preMessages !== preMessagesRaw) {
+                _state.value = _state.value.copy(summary = preSummary, messages = preMessages)
+            }
+
             // сразу сохраним user-msg в чат (чтобы не потерялось при крэше)
-            persistChat(messages = preMessages, metrics = _state.value.metrics)
+            persistChat(summary = preSummary, messages = preMessages, metrics = _state.value.metrics)
 
             val start = android.os.SystemClock.elapsedRealtime()
 
             runCatching {
-                repo.send(text, currentSettings, preMessages) // история уже с userMsg
+                repo.send(
+                    text = text,
+                    settings = currentSettings,
+                    history = preMessages,
+                    summary = if (currentSettings.summaryEnabled) preSummary else ""
+                ) // история уже с userMsg
             }.onSuccess { result ->
                 val latencyMs = android.os.SystemClock.elapsedRealtime() - start
                 val tokensIn = result.tokensIn ?: 0
@@ -89,16 +121,27 @@ class ChatViewModel @Inject constructor(
                 )
 
                 val assistantMsg = UiChatMessage(role = Role.ASSISTANT, text = result.content.orEmpty())
-                val updatedMessages = preMessages + assistantMsg
+                val updatedMessagesRaw = preMessages + assistantMsg
+                val (updatedSummary, updatedMessages) = runCatching {
+                    compactHistoryIfNeeded(
+                        summary = preSummary,
+                        messages = updatedMessagesRaw,
+                        settings = currentSettings
+                    )
+                }.getOrElse {
+                    // Не теряем ответ ассистента, даже если summary-запрос временно упал.
+                    preSummary to updatedMessagesRaw
+                }
                 val updatedMetrics = listOf(metric) + _state.value.metrics
 
                 _state.value = _state.value.copy(
                     isLoading = false,
+                    summary = updatedSummary,
                     messages = updatedMessages,
                     metrics = updatedMetrics
                 )
 
-                persistChat(messages = updatedMessages, metrics = updatedMetrics)
+                persistChat(summary = updatedSummary, messages = updatedMessages, metrics = updatedMetrics)
             }.onFailure { e ->
                 _state.value = _state.value.copy(
                     isLoading = false,
@@ -108,15 +151,38 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun persistChat(messages: List<UiChatMessage>, metrics: List<RunMetric>) {
+    private suspend fun persistChat(
+        summary: String,
+        messages: List<UiChatMessage>,
+        metrics: List<RunMetric>
+    ) {
         val existing = store.getChat(chatId) ?: return
         store.updateChat(
             existing.copy(
+                summary = summary,
                 messages = messages,
                 metrics = metrics,
                 updatedAt = System.currentTimeMillis()
             )
         )
+    }
+
+    private suspend fun compactHistoryIfNeeded(
+        summary: String,
+        messages: List<UiChatMessage>,
+        settings: AppSettings
+    ): Pair<String, List<UiChatMessage>> {
+        if (!settings.summaryEnabled) return summary to messages
+        if (messages.size <= 10) return summary to messages
+
+        val chunkToSummarize = messages.dropLast(10)
+        val keptMessages = messages.takeLast(10)
+        val updatedSummary = repo.summarizeMessages(
+            currentSummary = summary,
+            chunk = chunkToSummarize,
+            settings = settings
+        )
+        return updatedSummary to keptMessages
     }
 }
 

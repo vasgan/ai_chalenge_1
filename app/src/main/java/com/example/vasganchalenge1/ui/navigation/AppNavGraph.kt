@@ -8,8 +8,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.ui.ChatViewModel
 import com.example.vasganchalenge1.ui.ChatScreen
+import com.example.vasganchalenge1.ui.SummaryScreen
 import com.example.vasganchalenge1.ui.chats.ChatListScreen
 import com.example.vasganchalenge1.ui.chats.ChatListViewModel
 import com.example.vasganchalenge1.ui.settings.SettingsScreen
@@ -50,7 +52,25 @@ fun AppNavGraph() {
                 onInputChange = vm::onInputChange,
                 onSendClick = vm::onSendClick,
           //      onBack = { navController.popBackStack() },
-                onOpenSettings = { navController.navigate(Routes.settings(state.chatId)) }
+                onOpenSettings = { navController.navigate(Routes.settings(state.chatId)) },
+                onOpenSummary = { navController.navigate(Routes.summary(state.chatId)) }
+            )
+        }
+
+        composable(
+            route = "${Routes.Summary}/{chatId}",
+            arguments = listOf(navArgument("chatId") { type = NavType.StringType })
+        ) {
+            val vm = hiltViewModel<ChatViewModel>()
+            val state = vm.state.collectAsState().value
+
+            SummaryScreen(
+                summary = state.summary,
+                totalUsageTokens = state.metrics.firstOrNull()?.totalUsageToken ?: 0,
+                userMessagesCount = state.messages.count { it.role == Role.USER },
+                assistantMessagesCount = state.messages.count { it.role == Role.ASSISTANT },
+                totalMessagesCount = state.messages.size,
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -69,6 +89,7 @@ fun AppNavGraph() {
                 onBack = { navController.popBackStack() },
                 onSave = { vm.save { navController.popBackStack() } },
                 onEnabledChange = vm::setEnabled,
+                onSummaryEnabledChange = vm::setSummaryEnabled,
                 onTemperatureChange = vm::setTemperature,
                 onFormatChange = vm::setFormat,
                 onLengthLimitChange = vm::setLengthLimit,

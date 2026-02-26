@@ -37,7 +37,8 @@ import com.example.vasganchalenge1.data.UiChatMessage
 @Composable
 fun MainRoute(
     vm: ChatViewModel,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenSummary: () -> Unit
 ) {
     val state = vm.state.collectAsState().value
 
@@ -45,7 +46,8 @@ fun MainRoute(
         state = state,
         onInputChange = vm::onInputChange,
         onSendClick = vm::onSendClick,
-        onOpenSettings = onOpenSettings
+        onOpenSettings = onOpenSettings,
+        onOpenSummary = onOpenSummary
     )
 }
 
@@ -54,7 +56,8 @@ fun ChatScreen(
     state: ChatUiState,
     onInputChange: (String) -> Unit,
     onSendClick: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenSummary: () -> Unit
 ) {
     val listState = rememberLazyListState()
 
@@ -75,7 +78,10 @@ fun ChatScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Агент", style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = onOpenSettings) { Text("Настройки") }
+                Row {
+                    TextButton(onClick = onOpenSummary) { Text("Показать summary") }
+                    TextButton(onClick = onOpenSettings) { Text("Настройки") }
+                }
             }
         },
         bottomBar = {
@@ -145,7 +151,6 @@ fun ChatScreen(
         }
     }
 }
-
 
 @Composable
 private fun MetricsHeader(metrics: List<RunMetric>) {

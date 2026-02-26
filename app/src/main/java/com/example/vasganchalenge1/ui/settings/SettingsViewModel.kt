@@ -16,6 +16,8 @@ import javax.inject.Inject
 
 data class SettingsUiState(
     val enabled: Boolean = false,
+    val summaryEnabled: Boolean = true,
+    val canEditSummaryEnabled: Boolean = true,
     val model: String = "gpt-4o-mini", // NEW
     val format: String = "",
     val lengthLimit: String = "",
@@ -37,9 +39,12 @@ class SettingsViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             store.chatsFlow.collect { chats ->
-                val s = chats.firstOrNull { it.id == chatId }?.settings ?: AppSettings()
+                val chat = chats.firstOrNull { it.id == chatId }
+                val s = chat?.settings ?: AppSettings()
                 _state.value = SettingsUiState(
                     enabled = s.enabled,
+                    summaryEnabled = s.summaryEnabled,
+                    canEditSummaryEnabled = chat?.messages?.isEmpty() != false,
                     model = s.model, // NEW
                     format = s.format,
                     lengthLimit = s.lengthLimit,
@@ -53,6 +58,9 @@ class SettingsViewModel @Inject constructor(
 
     fun setModel(v: String) = _state.update { it.copy(model = v) }
     fun setEnabled(v: Boolean) = _state.update { it.copy(enabled = v) }
+    fun setSummaryEnabled(v: Boolean) = _state.update {
+        if (!it.canEditSummaryEnabled) it else it.copy(summaryEnabled = v)
+    }
     fun setFormat(v: String) = _state.update { it.copy(format = v) }
     fun setLengthLimit(v: String) = _state.update { it.copy(lengthLimit = v) }
     fun setStopSequence(v: String) = _state.update { it.copy(stopSequence = v) }
@@ -66,6 +74,8 @@ class SettingsViewModel @Inject constructor(
                 existingChat.copy(
                     settings = AppSettings(
                         enabled = _state.value.enabled,
+                        summaryEnabled = existingChat.settings.summaryEnabled.takeIf { !_state.value.canEditSummaryEnabled }
+                            ?: _state.value.summaryEnabled,
                         model = _state.value.model,
                         format = _state.value.format,
                         lengthLimit = _state.value.lengthLimit,
