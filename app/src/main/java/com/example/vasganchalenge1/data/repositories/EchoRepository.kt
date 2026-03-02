@@ -13,24 +13,26 @@ class EchoRepository  @Inject constructor(
     suspend fun send(
         settings: AppSettings,
         history: List<UiChatMessage>,
-        facts: String
+        facts: String,
+        longTermMemoryJson: String
     ): DataResponse {
         val messages = mutableListOf<Message>()
-        if (settings.contextMode == ContextMode.FACTS && facts.isNotBlank()) {
-            messages += Message(
-                "system",
-                "Conversation facts from older messages:\n$facts"
-            )
+        val systemParts = buildList {
+            if (longTermMemoryJson.isNotBlank() && longTermMemoryJson != "{}") {
+                add(longTermMemoryJson)
+            }
+            if (settings.contextMode == ContextMode.FACTS && facts.isNotBlank()) {
+                add("Conversation facts from older messages:\n$facts")
+            }
+            if (settings.enabled) {
+                add("${settings.format}. ${settings.lengthLimit}.")
+            }
         }
-        val systemMessages = if (settings.enabled) {
-            listOf(
-                Message(
-                    "system",
-                    "${settings.format}. ${settings.lengthLimit}."
-                )
+        if (systemParts.isNotEmpty()) {
+            messages += Message(
+                role = "system",
+                content = systemParts.joinToString("\n\n")
             )
-        } else {
-            emptyList()
         }
         val historyMessages = history.map {
             Message(
@@ -39,7 +41,6 @@ class EchoRepository  @Inject constructor(
             )
         }
         messages.addAll(historyMessages)
-        messages.addAll(systemMessages)
         val response = api.chatCompletion(
             ChatRequest(
                 model = settings.model,

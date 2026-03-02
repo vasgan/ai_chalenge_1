@@ -40,8 +40,11 @@ class SettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            store.chatsFlow.collect { chats ->
-                val chat = chats.firstOrNull { it.id == chatId }
+            store.profilesFlow.collect { profiles ->
+                val chat = profiles.asSequence()
+                    .flatMap { it.tasks.asSequence() }
+                    .flatMap { it.chats.asSequence() }
+                    .firstOrNull { it.id == chatId }
                 val s = chat?.settings ?: AppSettings()
                 _state.value = SettingsUiState(
                     enabled = s.enabled,

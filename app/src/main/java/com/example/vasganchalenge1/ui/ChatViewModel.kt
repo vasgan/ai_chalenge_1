@@ -3,6 +3,8 @@ package com.example.vasganchalenge1.ui
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.vasganchalenge1.data.LongTermMemory
+import com.example.vasganchalenge1.data.MemoryField
 import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
@@ -32,14 +34,24 @@ class ChatViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            store.chatsFlow.collect { chats ->
-                val chat = chats.firstOrNull { it.id == chatId } ?: return@collect
+            store.profilesFlow.collect { profiles ->
+                val profile = profiles.firstOrNull { candidate ->
+                    candidate.tasks.any { task -> task.chats.any { it.id == chatId } }
+                } ?: return@collect
+                val chat = profile.tasks.asSequence()
+                    .flatMap { it.chats.asSequence() }
+                    .firstOrNull { it.id == chatId } ?: return@collect
                 _state.value = _state.value.copy(
+                    profileId = profile.id,
+                    profileTitle = profile.title,
                     rootChatId = chat.rootChatId,
                     parentChatId = chat.parentChatId,
                     branchedFromMessageId = chat.branchedFromMessageId,
                     title = chat.title,
                     facts = chat.facts,
+                    profileDescription = profile.longTermMemory.profileDescription,
+                    communicationLanguage = profile.longTermMemory.communicationLanguage,
+                    longTermFields = profile.longTermMemory.customFields,
                     factsMessageCount = chat.factsMessageCount,
                     messages = chat.messages,
                     metrics = chat.metrics
@@ -124,7 +136,14 @@ class ChatViewModel @Inject constructor(
                 repo.send(
                     settings = currentSettings,
                     history = requestHistory,
-                    facts = if (currentSettings.contextMode == ContextMode.FACTS) preFacts else ""
+                    facts = if (currentSettings.contextMode == ContextMode.FACTS) preFacts else "",
+                    longTermMemoryJson = buildLongTermMemoryJson(
+                        LongTermMemory(
+                            profileDescription = _state.value.profileDescription,
+                            communicationLanguage = _state.value.communicationLanguage,
+                            customFields = _state.value.longTermFields
+                        )
+                    )
                 ) // история уже с userMsg
             }.onSuccess { result ->
                 val latencyMs = android.os.SystemClock.elapsedRealtime() - start
@@ -233,6 +252,51 @@ class ChatViewModel @Inject constructor(
             ContextMode.LAST_10 -> fullMessages.takeLast(10)
             ContextMode.FACTS -> fullMessages.takeLast(10)
             else -> fullMessages
+        }
+    }
+}
+
+private fun buildLongTermMemoryJson(longTermMemory: LongTermMemory): String {
+    val entries = buildList {
+        if (longTermMemory.profileDescription.isNotBlank()) {
+            add(jsonEntry("profile_description", longTermMemory.profileDescription))
+        }
+        if (longTermMemory.communicationLanguage.isNotBlank()) {
+            val language = longTermMemory.communicationLanguage
+            add(
+                jsonEntry(
+                    "communication_language",
+                    "You must respond ONLY in \"$language\".\n" +
+                            "Do not switch language even if the user writes in another language.\n" +
+                            "Do not include translations.\n" +
+                            "If the user asks in another language, still answer in \"$language\"."
+                )
+            )
+        }
+        longTermMemory.customFields.forEach { field ->
+            if (field.key.isNotBlank() && field.value.isNotBlank()) {
+                add(jsonEntry(field.key, field.value))
+            }
+        }
+    }
+    return "{${entries.joinToString(",")}}"
+}
+
+private fun jsonEntry(key: String, value: String): String {
+    return "\"${escapeJson(key)}\":\"${escapeJson(value)}\""
+}
+
+private fun escapeJson(value: String): String {
+    return buildString(value.length) {
+        value.forEach { ch ->
+            when (ch) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> append(ch)
+            }
         }
     }
 }

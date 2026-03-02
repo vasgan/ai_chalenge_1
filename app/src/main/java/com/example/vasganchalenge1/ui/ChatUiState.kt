@@ -2,14 +2,20 @@ package com.example.vasganchalenge1.ui
 
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
+import com.example.vasganchalenge1.data.MemoryField
 
 data class ChatUiState(
     val chatId: String = "",
+    val profileId: String = "",
+    val profileTitle: String = "",
     val rootChatId: String = "",
     val parentChatId: String? = null,
     val branchedFromMessageId: Long? = null,
     val title: String = "",
     val facts: String = "",
+    val profileDescription: String = "",
+    val communicationLanguage: String = "",
+    val longTermFields: List<MemoryField> = emptyList(),
     val factsMessageCount: Int = 0,
     val input: String = "",
     val isLoading: Boolean = false,

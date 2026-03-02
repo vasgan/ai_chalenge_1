@@ -39,6 +39,39 @@ data class RunMetric(
     val costUsd: Double?
 )
 
+data class MemoryField(
+    val key: String,
+    val value: String
+)
+
+data class LongTermMemory(
+    val profileDescription: String = "",
+    val communicationLanguage: String = "",
+    val customFields: List<MemoryField> = emptyList()
+)
+
+data class WorkingMemory(
+    val fields: List<MemoryField> = emptyList()
+)
+
+data class Profile(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String,
+    val longTermMemory: LongTermMemory = LongTermMemory(),
+    val tasks: List<TaskItem> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+data class TaskItem(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String,
+    val workingMemory: WorkingMemory = WorkingMemory(),
+    val chats: List<Chat> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 data class Chat(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "Новый чат",

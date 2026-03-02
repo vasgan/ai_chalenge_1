@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun ChatListScreen(
     state: ChatListUiState,
+    onBack: () -> Unit,
     onOpenChat: (String) -> Unit,
     onCreateChat: () -> Unit,
     onDeleteChat: (String) -> Unit
@@ -36,8 +37,14 @@ fun ChatListScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Чаты", style = MaterialTheme.typography.titleLarge)
-                Button(onClick = onCreateChat) { Text("Новый чат") }
+                Column {
+                    Text("Чаты", style = MaterialTheme.typography.titleLarge)
+                    Text(state.taskTitle, style = MaterialTheme.typography.bodySmall)
+                }
+                Row {
+                    TextButton(onClick = onBack) { Text("Назад") }
+                    Button(onClick = onCreateChat) { Text("Новый чат") }
+                }
             }
         }
     ) { padding ->

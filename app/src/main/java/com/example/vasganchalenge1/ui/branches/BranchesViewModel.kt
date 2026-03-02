@@ -29,7 +29,11 @@ class BranchesViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            store.chatsFlow.collect { chats ->
+            store.profilesFlow.collect { profiles ->
+                val chats = profiles.asSequence()
+                    .flatMap { it.tasks.asSequence() }
+                    .flatMap { it.chats.asSequence() }
+                    .toList()
                 val currentChat = chats.firstOrNull { it.id == chatId } ?: return@collect
                 val relatedChats = chats
                     .filter { it.rootChatId == currentChat.rootChatId }

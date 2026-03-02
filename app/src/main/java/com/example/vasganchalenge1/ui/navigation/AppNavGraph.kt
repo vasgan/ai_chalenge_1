@@ -16,32 +16,104 @@ import com.example.vasganchalenge1.ui.branches.BranchesScreen
 import com.example.vasganchalenge1.ui.branches.BranchesViewModel
 import com.example.vasganchalenge1.ui.chats.ChatListScreen
 import com.example.vasganchalenge1.ui.chats.ChatListViewModel
+import com.example.vasganchalenge1.ui.profiles.ProfileListScreen
+import com.example.vasganchalenge1.ui.profiles.ProfileListViewModel
+import com.example.vasganchalenge1.ui.profiles.ProfileSettingsScreen
+import com.example.vasganchalenge1.ui.profiles.ProfileSettingsViewModel
 import com.example.vasganchalenge1.ui.settings.SettingsScreen
 import com.example.vasganchalenge1.ui.settings.SettingsViewModel
+import com.example.vasganchalenge1.ui.tasks.TaskListScreen
+import com.example.vasganchalenge1.ui.tasks.TaskListViewModel
 
 @Composable
 fun AppNavGraph() {
     val navController = rememberNavController()
 
-    NavHost(navController, startDestination = Routes.ChatList) {
+    NavHost(navController, startDestination = Routes.Profiles) {
 
-        // 1) Список чатов
-        composable(Routes.ChatList) {
+        composable(Routes.Profiles) {
+            val vm = hiltViewModel<ProfileListViewModel>()
+            val state = vm.state.collectAsState().value
+
+            ProfileListScreen(
+                state = state,
+                onOpenProfile = { profileId ->
+                    navController.navigate(Routes.tasks(profileId))
+                },
+                onCreateProfile = { title ->
+                    vm.createProfile(title) { profileId ->
+                        navController.navigate(Routes.tasks(profileId))
+                    }
+                }
+            )
+        }
+
+        composable(
+            route = "${Routes.Tasks}/{profileId}",
+            arguments = listOf(navArgument("profileId") { type = NavType.StringType })
+        ) {
+            val vm = hiltViewModel<TaskListViewModel>()
+            val state = vm.state.collectAsState().value
+
+            TaskListScreen(
+                state = state,
+                onBack = { navController.popBackStack() },
+                onOpenProfileSettings = {
+                    navController.navigate(Routes.profileSettings(state.profileId))
+                },
+                onOpenTask = { taskId ->
+                    navController.navigate(Routes.chatList(taskId))
+                },
+                onCreateTask = { title ->
+                    vm.createTask(title) { taskId ->
+                        navController.navigate(Routes.chatList(taskId))
+                    }
+                }
+            )
+        }
+
+        composable(
+            route = "${Routes.ProfileSettings}/{profileId}",
+            arguments = listOf(navArgument("profileId") { type = NavType.StringType })
+        ) {
+            val vm = hiltViewModel<ProfileSettingsViewModel>()
+            val state = vm.state.collectAsState().value
+
+            ProfileSettingsScreen(
+                state = state,
+                onBack = { navController.popBackStack() },
+                onSave = { vm.save { navController.popBackStack() } },
+                onProfileDescriptionChange = vm::setProfileDescription,
+                onCommunicationLanguageChange = vm::setCommunicationLanguage,
+                onAddCustomField = vm::addCustomField,
+                onCustomFieldKeyChange = vm::updateCustomFieldKey,
+                onCustomFieldValueChange = vm::updateCustomFieldValue,
+                onRemoveCustomField = vm::removeCustomField
+            )
+        }
+
+        composable(
+            route = "${Routes.ChatList}/{taskId}",
+            arguments = listOf(navArgument("taskId") { type = NavType.StringType })
+        ) {
             val vm = hiltViewModel<ChatListViewModel>()
             val state = vm.state.collectAsState().value
 
             ChatListScreen(
                 state = state,
+                onBack = { navController.popBackStack() },
                 onOpenChat = { chatId ->
                     navController.navigate(Routes.chat(chatId))
                 },
-                onCreateChat = { vm.createChat() },
+                onCreateChat = {
+                    vm.createChat { chatId ->
+                        navController.navigate(Routes.chat(chatId))
+                    }
+                },
                 onDeleteChat = { chatId -> vm.deleteChat(chatId) },
-              //  onOpenSettings = { ... } // настройки теперь привязаны к chatId
             )
         }
 
-        // 2) Экран конкретного чата
         composable(
             route = "${Routes.Chat}/{chatId}",
             arguments = listOf(navArgument("chatId") { type = NavType.StringType })
@@ -72,7 +144,9 @@ fun AppNavGraph() {
             val state = vm.state.collectAsState().value
 
             FactsScreen(
-                facts = state.facts,
+                profileDescription = state.profileDescription,
+                communicationLanguage = state.communicationLanguage,
+                longTermFields = state.longTermFields,
                 totalUsageTokens = state.metrics.firstOrNull()?.totalUsageToken ?: 0,
                 userMessagesCount = state.messages.count { it.role == Role.USER },
                 assistantMessagesCount = state.messages.count { it.role == Role.ASSISTANT },
