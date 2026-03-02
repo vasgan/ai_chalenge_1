@@ -4,9 +4,11 @@ object Routes {
     const val ChatList = "chat_list"
     const val Chat = "chat"
     const val Settings = "settings"
-    const val Summary = "summary"
+    const val Facts = "facts"
+    const val Branches = "branches"
 
     fun chat(chatId: String) = "$Chat/$chatId"
     fun settings(chatId: String) = "$Settings/$chatId"
-    fun summary(chatId: String) = "$Summary/$chatId"
+    fun facts(chatId: String) = "$Facts/$chatId"
+    fun branches(chatId: String) = "$Branches/$chatId"
 }

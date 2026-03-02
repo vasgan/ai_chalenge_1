@@ -16,8 +16,8 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SummaryScreen(
-    summary: String,
+fun FactsScreen(
+    facts: String,
     totalUsageTokens: Int,
     userMessagesCount: Int,
     assistantMessagesCount: Int,
@@ -27,7 +27,7 @@ fun SummaryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Summary") },
+                title = { Text("Facts") },
                 navigationIcon = {
                     TextButton(onClick = onBack) { Text("Назад") }
                 }
@@ -51,7 +51,7 @@ fun SummaryScreen(
                 style = MaterialTheme.typography.bodyMedium
             )
             Text(
-                text = summary.ifBlank { "Summary пока пустой" },
+                text = facts.ifBlank { "Facts пока пустые" },
                 modifier = Modifier.padding(top = 12.dp),
                 style = MaterialTheme.typography.bodyLarge
             )

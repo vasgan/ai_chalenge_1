@@ -42,8 +42,12 @@ data class RunMetric(
 data class Chat(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "Новый чат",
+    val rootChatId: String = id,
+    val parentChatId: String? = null,
+    val branchedFromMessageId: Long? = null,
     val settings: AppSettings = AppSettings(),
-    val summary: String = "",
+    val facts: String = "",
+    val factsMessageCount: Int = 0,
     val messages: List<UiChatMessage> = emptyList(),
     val metrics: List<RunMetric> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),

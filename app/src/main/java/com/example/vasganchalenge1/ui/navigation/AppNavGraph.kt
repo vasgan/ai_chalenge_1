@@ -9,9 +9,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.vasganchalenge1.data.Role
+import com.example.vasganchalenge1.ui.FactsScreen
 import com.example.vasganchalenge1.ui.ChatViewModel
 import com.example.vasganchalenge1.ui.ChatScreen
-import com.example.vasganchalenge1.ui.SummaryScreen
+import com.example.vasganchalenge1.ui.branches.BranchesScreen
+import com.example.vasganchalenge1.ui.branches.BranchesViewModel
 import com.example.vasganchalenge1.ui.chats.ChatListScreen
 import com.example.vasganchalenge1.ui.chats.ChatListViewModel
 import com.example.vasganchalenge1.ui.settings.SettingsScreen
@@ -51,26 +53,47 @@ fun AppNavGraph() {
                 state = state,
                 onInputChange = vm::onInputChange,
                 onSendClick = vm::onSendClick,
-          //      onBack = { navController.popBackStack() },
+                onOpenBranches = { navController.navigate(Routes.branches(state.chatId)) },
+                onCreateBranch = { messageId ->
+                    vm.createBranchFrom(messageId) { newChatId ->
+                        navController.navigate(Routes.chat(newChatId))
+                    }
+                },
                 onOpenSettings = { navController.navigate(Routes.settings(state.chatId)) },
-                onOpenSummary = { navController.navigate(Routes.summary(state.chatId)) }
+                onOpenFacts = { navController.navigate(Routes.facts(state.chatId)) }
             )
         }
 
         composable(
-            route = "${Routes.Summary}/{chatId}",
+            route = "${Routes.Facts}/{chatId}",
             arguments = listOf(navArgument("chatId") { type = NavType.StringType })
         ) {
             val vm = hiltViewModel<ChatViewModel>()
             val state = vm.state.collectAsState().value
 
-            SummaryScreen(
-                summary = state.summary,
+            FactsScreen(
+                facts = state.facts,
                 totalUsageTokens = state.metrics.firstOrNull()?.totalUsageToken ?: 0,
                 userMessagesCount = state.messages.count { it.role == Role.USER },
                 assistantMessagesCount = state.messages.count { it.role == Role.ASSISTANT },
                 totalMessagesCount = state.messages.size,
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = "${Routes.Branches}/{chatId}",
+            arguments = listOf(navArgument("chatId") { type = NavType.StringType })
+        ) {
+            val vm = hiltViewModel<BranchesViewModel>()
+            val state = vm.state.collectAsState().value
+
+            BranchesScreen(
+                state = state,
+                onBack = { navController.popBackStack() },
+                onOpenChat = { branchChatId ->
+                    navController.navigate(Routes.chat(branchChatId))
+                }
             )
         }
 
@@ -85,11 +108,12 @@ fun AppNavGraph() {
             SettingsScreen(
                 state = state,
                 modelOptions = vm.modelOptions,
+                contextModeOptions = vm.contextModeOptions,
                 onModelChange = vm::setModel,
                 onBack = { navController.popBackStack() },
                 onSave = { vm.save { navController.popBackStack() } },
                 onEnabledChange = vm::setEnabled,
-                onSummaryEnabledChange = vm::setSummaryEnabled,
+                onContextModeChange = vm::setContextMode,
                 onTemperatureChange = vm::setTemperature,
                 onFormatChange = vm::setFormat,
                 onLengthLimitChange = vm::setLengthLimit,

@@ -27,6 +27,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -38,7 +40,9 @@ import com.example.vasganchalenge1.data.UiChatMessage
 fun MainRoute(
     vm: ChatViewModel,
     onOpenSettings: () -> Unit,
-    onOpenSummary: () -> Unit
+    onOpenFacts: () -> Unit,
+    onOpenBranches: () -> Unit,
+    onCreateBranch: (Long) -> Unit
 ) {
     val state = vm.state.collectAsState().value
 
@@ -47,7 +51,9 @@ fun MainRoute(
         onInputChange = vm::onInputChange,
         onSendClick = vm::onSendClick,
         onOpenSettings = onOpenSettings,
-        onOpenSummary = onOpenSummary
+        onOpenFacts = onOpenFacts,
+        onOpenBranches = onOpenBranches,
+        onCreateBranch = onCreateBranch
     )
 }
 
@@ -57,7 +63,9 @@ fun ChatScreen(
     onInputChange: (String) -> Unit,
     onSendClick: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenSummary: () -> Unit
+    onOpenFacts: () -> Unit,
+    onOpenBranches: () -> Unit,
+    onCreateBranch: (Long) -> Unit
 ) {
     val listState = rememberLazyListState()
 
@@ -79,7 +87,8 @@ fun ChatScreen(
             ) {
                 Text("Агент", style = MaterialTheme.typography.titleLarge)
                 Row {
-                    TextButton(onClick = onOpenSummary) { Text("Показать summary") }
+                    TextButton(onClick = onOpenBranches) { Text("Ветки") }
+                    TextButton(onClick = onOpenFacts) { Text("Показать facts") }
                     TextButton(onClick = onOpenSettings) { Text("Настройки") }
                 }
             }
@@ -142,7 +151,10 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(state.messages, key = { it.id }) { msg ->
-                    ChatBubble(msg)
+                    ChatBubble(
+                        msg = msg,
+                        onCreateBranch = { onCreateBranch(msg.id) }
+                    )
                 }
 
                 // чтобы низ не прилипал к bottomBar
@@ -173,8 +185,12 @@ private fun MetricsHeader(metrics: List<RunMetric>) {
 }
 
 @Composable
-private fun ChatBubble(msg: UiChatMessage) {
+private fun ChatBubble(
+    msg: UiChatMessage,
+    onCreateBranch: () -> Unit
+) {
     val isUser = msg.role == Role.USER
+    val clipboardManager = LocalClipboardManager.current
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -192,6 +208,19 @@ private fun ChatBubble(msg: UiChatMessage) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(msg.text, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(msg.text))
+                        }
+                    ) {
+                        Text("Copy")
+                    }
+                    TextButton(onClick = onCreateBranch) {
+                        Text("Ветка")
+                    }
+                }
             }
         }
     }

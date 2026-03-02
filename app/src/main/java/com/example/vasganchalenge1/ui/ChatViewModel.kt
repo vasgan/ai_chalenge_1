@@ -8,11 +8,14 @@ import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.repositories.AppSettings
 import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
+import com.example.vasganchalenge1.data.repositories.ContextMode
 import com.example.vasganchalenge1.data.repositories.EchoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+private const val FACTS_CHUNK_SIZE = 20
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -20,13 +23,6 @@ class ChatViewModel @Inject constructor(
     private val store: ChatStoreRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
-    // Сделай план по созданию Android приложения
-    //можешь по этим критериям подобрать идею приложение нужно разработать
-    //Давай разберем финансовое приложение
-    //Можешь разбить его на 23 задачи
-    //какие риски могут возникнуть при разработке этого приложения
-    // придумай на каждый риск три способа решения риска
-
     private val chatId: String = checkNotNull(savedStateHandle["chatId"])
 
     private val _state = MutableStateFlow(ChatUiState(chatId = chatId))
@@ -39,8 +35,12 @@ class ChatViewModel @Inject constructor(
             store.chatsFlow.collect { chats ->
                 val chat = chats.firstOrNull { it.id == chatId } ?: return@collect
                 _state.value = _state.value.copy(
+                    rootChatId = chat.rootChatId,
+                    parentChatId = chat.parentChatId,
+                    branchedFromMessageId = chat.branchedFromMessageId,
                     title = chat.title,
-                    summary = chat.summary,
+                    facts = chat.facts,
+                    factsMessageCount = chat.factsMessageCount,
                     messages = chat.messages,
                     metrics = chat.metrics
                 )
@@ -51,6 +51,13 @@ class ChatViewModel @Inject constructor(
 
     fun onInputChange(v: String) {
         _state.value = _state.value.copy(input = v, error = null)
+    }
+
+    fun createBranchFrom(messageId: Long, onDone: (String) -> Unit) {
+        viewModelScope.launch {
+            val branch = store.createBranch(chatId, messageId)
+            onDone(branch.id)
+        }
     }
 
     fun onSendClick() {
@@ -74,37 +81,50 @@ class ChatViewModel @Inject constructor(
         )
 
         viewModelScope.launch {
-            val currentSummary = _state.value.summary
-            val preCompactResult = runCatching {
-                compactHistoryIfNeeded(
-                    summary = currentSummary,
-                    messages = preMessagesRaw,
+            val currentFacts = _state.value.facts
+            val currentFactsMessageCount = _state.value.factsMessageCount
+            val preFactsResult = runCatching {
+                updateFactsIfNeeded(
+                    facts = currentFacts,
+                    factsMessageCount = currentFactsMessageCount,
+                    fullMessages = preMessagesRaw,
                     settings = currentSettings
                 )
             }.getOrElse { e ->
                 _state.value = _state.value.copy(
                     isLoading = false,
-                    error = e.message ?: "Ошибка обновления summary"
+                    error = e.message ?: "Ошибка обновления facts"
                 )
                 return@launch
             }
-            val (preSummary, preMessages) = preCompactResult
+            val (preFacts, preFactsMessageCount) = preFactsResult
 
-            if (preSummary != currentSummary || preMessages !== preMessagesRaw) {
-                _state.value = _state.value.copy(summary = preSummary, messages = preMessages)
+            if (preFacts != currentFacts || preFactsMessageCount != currentFactsMessageCount) {
+                _state.value = _state.value.copy(
+                    facts = preFacts,
+                    factsMessageCount = preFactsMessageCount
+                )
             }
 
             // сразу сохраним user-msg в чат (чтобы не потерялось при крэше)
-            persistChat(summary = preSummary, messages = preMessages, metrics = _state.value.metrics)
+            persistChat(
+                facts = preFacts,
+                factsMessageCount = preFactsMessageCount,
+                messages = preMessagesRaw,
+                metrics = _state.value.metrics
+            )
 
             val start = android.os.SystemClock.elapsedRealtime()
+            val requestHistory = buildRequestHistory(
+                fullMessages = preMessagesRaw,
+                settings = currentSettings
+            )
 
             runCatching {
                 repo.send(
-                    text = text,
                     settings = currentSettings,
-                    history = preMessages,
-                    summary = if (currentSettings.summaryEnabled) preSummary else ""
+                    history = requestHistory,
+                    facts = if (currentSettings.contextMode == ContextMode.FACTS) preFacts else ""
                 ) // история уже с userMsg
             }.onSuccess { result ->
                 val latencyMs = android.os.SystemClock.elapsedRealtime() - start
@@ -121,27 +141,34 @@ class ChatViewModel @Inject constructor(
                 )
 
                 val assistantMsg = UiChatMessage(role = Role.ASSISTANT, text = result.content.orEmpty())
-                val updatedMessagesRaw = preMessages + assistantMsg
-                val (updatedSummary, updatedMessages) = runCatching {
-                    compactHistoryIfNeeded(
-                        summary = preSummary,
-                        messages = updatedMessagesRaw,
+                val updatedMessagesRaw = preMessagesRaw + assistantMsg
+                val (updatedFacts, updatedFactsMessageCount) = runCatching {
+                    updateFactsIfNeeded(
+                        facts = preFacts,
+                        factsMessageCount = preFactsMessageCount,
+                        fullMessages = updatedMessagesRaw,
                         settings = currentSettings
                     )
                 }.getOrElse {
-                    // Не теряем ответ ассистента, даже если summary-запрос временно упал.
-                    preSummary to updatedMessagesRaw
+                    // Не теряем ответ ассистента, даже если facts-запрос временно упал.
+                    preFacts to preFactsMessageCount
                 }
                 val updatedMetrics = listOf(metric) + _state.value.metrics
 
                 _state.value = _state.value.copy(
                     isLoading = false,
-                    summary = updatedSummary,
-                    messages = updatedMessages,
+                    facts = updatedFacts,
+                    factsMessageCount = updatedFactsMessageCount,
+                    messages = updatedMessagesRaw,
                     metrics = updatedMetrics
                 )
 
-                persistChat(summary = updatedSummary, messages = updatedMessages, metrics = updatedMetrics)
+                persistChat(
+                    facts = updatedFacts,
+                    factsMessageCount = updatedFactsMessageCount,
+                    messages = updatedMessagesRaw,
+                    metrics = updatedMetrics
+                )
             }.onFailure { e ->
                 _state.value = _state.value.copy(
                     isLoading = false,
@@ -152,14 +179,16 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun persistChat(
-        summary: String,
+        facts: String,
+        factsMessageCount: Int,
         messages: List<UiChatMessage>,
         metrics: List<RunMetric>
     ) {
         val existing = store.getChat(chatId) ?: return
         store.updateChat(
             existing.copy(
-                summary = summary,
+                facts = facts,
+                factsMessageCount = factsMessageCount,
                 messages = messages,
                 metrics = metrics,
                 updatedAt = System.currentTimeMillis()
@@ -167,22 +196,44 @@ class ChatViewModel @Inject constructor(
         )
     }
 
-    private suspend fun compactHistoryIfNeeded(
-        summary: String,
-        messages: List<UiChatMessage>,
+    private suspend fun updateFactsIfNeeded(
+        facts: String,
+        factsMessageCount: Int,
+        fullMessages: List<UiChatMessage>,
         settings: AppSettings
-    ): Pair<String, List<UiChatMessage>> {
-        if (!settings.summaryEnabled) return summary to messages
-        if (messages.size <= 10) return summary to messages
+    ): Pair<String, Int> {
+        if (settings.contextMode == ContextMode.LAST_10) {
+            return "" to 0
+        }
+        if (settings.contextMode != ContextMode.FACTS) return facts to factsMessageCount
+        if (fullMessages.size <= 10) return facts to factsMessageCount
 
-        val chunkToSummarize = messages.dropLast(10)
-        val keptMessages = messages.takeLast(10)
-        val updatedSummary = repo.summarizeMessages(
-            currentSummary = summary,
-            chunk = chunkToSummarize,
-            settings = settings
-        )
-        return updatedSummary to keptMessages
+        val cutoffIndex = fullMessages.size - 10
+        var updatedFacts = facts
+        var coveredCount = factsMessageCount.coerceAtMost(cutoffIndex)
+
+        while (coveredCount < cutoffIndex) {
+            val nextCoveredCount = minOf(cutoffIndex, coveredCount + FACTS_CHUNK_SIZE)
+            updatedFacts = repo.extractFacts(
+                currentFacts = updatedFacts,
+                chunk = fullMessages.subList(coveredCount, nextCoveredCount),
+                settings = settings
+            )
+            coveredCount = nextCoveredCount
+        }
+
+        return updatedFacts to coveredCount
+    }
+
+    private fun buildRequestHistory(
+        fullMessages: List<UiChatMessage>,
+        settings: AppSettings
+    ): List<UiChatMessage> {
+        return when (settings.contextMode) {
+            ContextMode.LAST_10 -> fullMessages.takeLast(10)
+            ContextMode.FACTS -> fullMessages.takeLast(10)
+            else -> fullMessages
+        }
     }
 }
 

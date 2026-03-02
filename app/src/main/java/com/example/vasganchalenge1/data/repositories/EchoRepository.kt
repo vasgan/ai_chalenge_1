@@ -5,45 +5,41 @@ import com.example.vasganchalenge1.data.Message
 import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.network.ApiService
-import com.example.vasganchalenge1.data.network.EchoRequest
 import javax.inject.Inject
 
 class EchoRepository  @Inject constructor(
     private val api: ApiService
 ) {
     suspend fun send(
-        text: String,
         settings: AppSettings,
         history: List<UiChatMessage>,
-        summary: String
+        facts: String
     ): DataResponse {
         val messages = mutableListOf<Message>()
-        if (settings.summaryEnabled && summary.isNotBlank()) {
+        if (settings.contextMode == ContextMode.FACTS && facts.isNotBlank()) {
             messages += Message(
                 "system",
-                "Conversation summary (older messages):\n$summary"
+                "Conversation facts from older messages:\n$facts"
             )
         }
-        val mainMessage = if (settings.enabled) {
+        val systemMessages = if (settings.enabled) {
             listOf(
                 Message(
                     "system",
                     "${settings.format}. ${settings.lengthLimit}."
-                ),
-                Message("user", text)
+                )
             )
         } else {
-            listOf(Message("user", text))
+            emptyList()
         }
-        val historyMessages = (if (settings.summaryEnabled) history.takeLast(10) else history)
-            .map {
-                Message(
-                    role = if (it.role == Role.USER) "user" else "assistant",
-                    content = it.text
-                )
-            }
+        val historyMessages = history.map {
+            Message(
+                role = if (it.role == Role.USER) "user" else "assistant",
+                content = it.text
+            )
+        }
         messages.addAll(historyMessages)
-        messages.addAll(mainMessage)
+        messages.addAll(systemMessages)
         val response = api.chatCompletion(
             ChatRequest(
                 model = settings.model,
@@ -60,26 +56,27 @@ class EchoRepository  @Inject constructor(
         )
     }
 
-    suspend fun summarizeMessages(
-        currentSummary: String,
+    suspend fun extractFacts(
+        currentFacts: String,
         chunk: List<UiChatMessage>,
         settings: AppSettings
     ): String {
-        if (chunk.isEmpty()) return currentSummary
+        if (chunk.isEmpty()) return currentFacts
 
-        val summarizeMessages = buildList {
+        val factsMessages = buildList {
             add(
                 Message(
                     "system",
-                    "You are a summarizer. Update the running summary of the conversation.\n" +
+                    "You extract and update durable facts from a conversation.\n" +
                             "Rules:\n" +
-                            "- Keep key facts, decisions, preferences, constraints.\n" +
-                            "- Keep open TODOs/questions.\n" +
+                            "- Keep only durable facts, decisions, preferences, and constraints.\n" +
+                            //"- Keep open TODOs/questions.\n" +
                             "- Be concise (max 800 chars).\n" +
-                            "- Return ONLY the updated summary text."
+                            "- Avoid transient chatter.\n" +
+                            "- Return ONLY the updated facts text."
                 )
             )
-            add(Message("user", "Current summary:\n${currentSummary.ifBlank { "(empty)" }}"))
+            add(Message("user", "Current facts:\n${currentFacts.ifBlank { "(empty)" }}"))
             add(
                 Message(
                     "user",
@@ -92,14 +89,14 @@ class EchoRepository  @Inject constructor(
         val response = api.chatCompletion(
             ChatRequest(
                 model = settings.model,
-                messages = summarizeMessages,
+                messages = factsMessages,
                 stop = null,
                 max_tokens = null,
                 temperature = null
             )
         )
 
-        return response.choices.firstOrNull()?.message?.content?.trim().orEmpty().ifBlank { currentSummary }
+        return response.choices.firstOrNull()?.message?.content?.trim().orEmpty().ifBlank { currentFacts }
     }
 }
 

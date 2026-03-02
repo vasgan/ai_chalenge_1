@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
 import com.example.vasganchalenge1.data.repositories.AppSettings
+import com.example.vasganchalenge1.data.repositories.ContextMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,8 +17,8 @@ import javax.inject.Inject
 
 data class SettingsUiState(
     val enabled: Boolean = false,
-    val summaryEnabled: Boolean = true,
-    val canEditSummaryEnabled: Boolean = true,
+    val contextMode: String = ContextMode.FACTS,
+    val canEditContextMode: Boolean = true,
     val model: String = "gpt-4o-mini", // NEW
     val format: String = "",
     val lengthLimit: String = "",
@@ -33,6 +34,7 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
     private val chatId: String = checkNotNull(savedStateHandle["chatId"])
     val modelOptions = listOf("gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1") // NEW (можешь поменять)
+    val contextModeOptions = listOf(ContextMode.FACTS, ContextMode.LAST_10)
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
@@ -43,8 +45,8 @@ class SettingsViewModel @Inject constructor(
                 val s = chat?.settings ?: AppSettings()
                 _state.value = SettingsUiState(
                     enabled = s.enabled,
-                    summaryEnabled = s.summaryEnabled,
-                    canEditSummaryEnabled = chat?.messages?.isEmpty() != false,
+                    contextMode = s.contextMode,
+                    canEditContextMode = chat?.messages?.isEmpty() != false,
                     model = s.model, // NEW
                     format = s.format,
                     lengthLimit = s.lengthLimit,
@@ -58,8 +60,8 @@ class SettingsViewModel @Inject constructor(
 
     fun setModel(v: String) = _state.update { it.copy(model = v) }
     fun setEnabled(v: Boolean) = _state.update { it.copy(enabled = v) }
-    fun setSummaryEnabled(v: Boolean) = _state.update {
-        if (!it.canEditSummaryEnabled) it else it.copy(summaryEnabled = v)
+    fun setContextMode(v: String) = _state.update {
+        if (!it.canEditContextMode) it else it.copy(contextMode = v)
     }
     fun setFormat(v: String) = _state.update { it.copy(format = v) }
     fun setLengthLimit(v: String) = _state.update { it.copy(lengthLimit = v) }
@@ -74,8 +76,8 @@ class SettingsViewModel @Inject constructor(
                 existingChat.copy(
                     settings = AppSettings(
                         enabled = _state.value.enabled,
-                        summaryEnabled = existingChat.settings.summaryEnabled.takeIf { !_state.value.canEditSummaryEnabled }
-                            ?: _state.value.summaryEnabled,
+                        contextMode = existingChat.settings.contextMode.takeIf { !_state.value.canEditContextMode }
+                            ?: _state.value.contextMode,
                         model = _state.value.model,
                         format = _state.value.format,
                         lengthLimit = _state.value.lengthLimit,

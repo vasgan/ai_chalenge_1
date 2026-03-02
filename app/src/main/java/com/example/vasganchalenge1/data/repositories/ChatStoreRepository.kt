@@ -53,6 +53,31 @@ class ChatStoreRepository @Inject constructor(
         saveAll(newList)
     }
 
+    suspend fun createBranch(sourceChatId: String, fromMessageId: Long): Chat {
+        val chats = chatsFlow.first()
+        val source = chats.firstOrNull { it.id == sourceChatId } ?: error("Chat not found")
+        val checkpointIndex = source.messages.indexOfFirst { it.id == fromMessageId }
+        require(checkpointIndex >= 0) { "Checkpoint message not found" }
+
+        val existingBranchCount = chats.count {
+            it.parentChatId == source.id && it.branchedFromMessageId == fromMessageId
+        }
+        val newBranch = Chat(
+            title = "${source.title} / Ветка ${existingBranchCount + 1}",
+            rootChatId = source.rootChatId,
+            parentChatId = source.id,
+            branchedFromMessageId = fromMessageId,
+            settings = source.settings,
+            facts = "",
+            factsMessageCount = 0,
+            messages = source.messages.take(checkpointIndex + 1),
+            metrics = emptyList()
+        )
+
+        saveAll(listOf(newBranch) + chats)
+        return newBranch
+    }
+
     suspend fun getChat(chatId: String): Chat? =
         chatsFlow.first().firstOrNull { it.id == chatId }
 }

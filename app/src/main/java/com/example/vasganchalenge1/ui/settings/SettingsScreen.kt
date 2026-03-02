@@ -29,12 +29,13 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SettingsScreen(
     state: SettingsUiState,
-    modelOptions: List<String>,          // NEW
+    modelOptions: List<String>,
+    contextModeOptions: List<String>,
     onModelChange: (String) -> Unit,
     onBack: () -> Unit,
     onSave: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
-    onSummaryEnabledChange: (Boolean) -> Unit,
+    onContextModeChange: (String) -> Unit,
     onTemperatureChange: (String) -> Unit,
     onFormatChange: (String) -> Unit,
     onLengthLimitChange: (String) -> Unit,
@@ -68,25 +69,45 @@ fun SettingsScreen(
                 Text("Режим запуска с условиями:")
                 Switch(checked = state.enabled, onCheckedChange = onEnabledChange)
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            var contextExpanded by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(
+                expanded = contextExpanded,
+                onExpandedChange = {
+                    if (state.canEditContextMode) contextExpanded = !contextExpanded
+                },
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Включить Summary")
-                    if (!state.canEditSummaryEnabled) {
-                        Text(
-                            text = "Можно изменить только до первого сообщения",
-                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                OutlinedTextField(
+                    value = contextModeLabel(state.contextMode),
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = state.canEditContextMode,
+                    label = { Text("Управление контекстом") },
+                    supportingText = {
+                        if (!state.canEditContextMode) {
+                            Text("Можно изменить только до первого сообщения")
+                        }
+                    },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(contextExpanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+
+                ExposedDropdownMenu(
+                    expanded = contextExpanded,
+                    onDismissRequest = { contextExpanded = false }
+                ) {
+                    contextModeOptions.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(contextModeLabel(option)) },
+                            onClick = {
+                                onContextModeChange(option)
+                                contextExpanded = false
+                            }
                         )
                     }
                 }
-                Switch(
-                    checked = state.summaryEnabled,
-                    onCheckedChange = onSummaryEnabledChange,
-                    enabled = state.canEditSummaryEnabled
-                )
             }
             var expanded by remember { mutableStateOf(false) }
 
@@ -167,3 +188,9 @@ fun SettingsScreen(
         }
     }
 }
+
+private fun contextModeLabel(mode: String): String =
+    when (mode) {
+        "last_10" -> "Только последние 10 сообщений"
+        else -> "Факты"
+    }
