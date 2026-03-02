@@ -8,6 +8,7 @@ import com.example.vasganchalenge1.data.Chat
 import com.example.vasganchalenge1.data.LongTermMemory
 import com.example.vasganchalenge1.data.Profile
 import com.example.vasganchalenge1.data.TaskItem
+import com.example.vasganchalenge1.data.WorkingMemoryState
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -187,6 +188,29 @@ class ChatStoreRepository @Inject constructor(
         profilesFlow.first().asSequence()
             .flatMap { it.tasks.asSequence() }
             .firstOrNull { it.id == taskId }
+
+    suspend fun getTaskByChatId(chatId: String): TaskItem? =
+        profilesFlow.first().asSequence()
+            .flatMap { it.tasks.asSequence() }
+            .firstOrNull { task -> task.chats.any { it.id == chatId } }
+
+    suspend fun updateTaskWorkingMemory(taskId: String, workingMemory: WorkingMemoryState) {
+        val profiles = profilesFlow.first()
+        saveAll(
+            profiles.map { profile ->
+                profile.copy(
+                    tasks = profile.tasks.map { task ->
+                        if (task.id != taskId) task
+                        else task.copy(
+                            workingMemory = workingMemory.copy(taskId = task.id),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    },
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+        )
+    }
 
     suspend fun getChat(chatId: String): Chat? =
         profilesFlow.first().asSequence()

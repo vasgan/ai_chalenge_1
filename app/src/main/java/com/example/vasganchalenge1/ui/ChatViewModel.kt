@@ -12,6 +12,8 @@ import com.example.vasganchalenge1.data.repositories.AppSettings
 import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
 import com.example.vasganchalenge1.data.repositories.ContextMode
 import com.example.vasganchalenge1.data.repositories.EchoRepository
+import com.example.vasganchalenge1.data.repositories.ValidationResult
+import com.example.vasganchalenge1.data.repositories.WorkingMemoryManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -23,6 +25,7 @@ private const val FACTS_CHUNK_SIZE = 20
 class ChatViewModel @Inject constructor(
     private val repo: EchoRepository,
     private val store: ChatStoreRepository,
+    private val workingMemoryManager: WorkingMemoryManager,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val chatId: String = checkNotNull(savedStateHandle["chatId"])
@@ -38,12 +41,16 @@ class ChatViewModel @Inject constructor(
                 val profile = profiles.firstOrNull { candidate ->
                     candidate.tasks.any { task -> task.chats.any { it.id == chatId } }
                 } ?: return@collect
-                val chat = profile.tasks.asSequence()
-                    .flatMap { it.chats.asSequence() }
-                    .firstOrNull { it.id == chatId } ?: return@collect
+                val task = profile.tasks.firstOrNull { candidate ->
+                    candidate.chats.any { it.id == chatId }
+                } ?: return@collect
+                val chat = task.chats.firstOrNull { it.id == chatId } ?: return@collect
+                val workingMemoryContext = workingMemoryManager.buildWorkingContext(task.id)
                 _state.value = _state.value.copy(
                     profileId = profile.id,
                     profileTitle = profile.title,
+                    taskId = task.id,
+                    taskTitle = task.title,
                     rootChatId = chat.rootChatId,
                     parentChatId = chat.parentChatId,
                     branchedFromMessageId = chat.branchedFromMessageId,
@@ -52,6 +59,7 @@ class ChatViewModel @Inject constructor(
                     profileDescription = profile.longTermMemory.profileDescription,
                     communicationLanguage = profile.longTermMemory.communicationLanguage,
                     longTermFields = profile.longTermMemory.customFields,
+                    workingMemoryContext = workingMemoryContext,
                     factsMessageCount = chat.factsMessageCount,
                     messages = chat.messages,
                     metrics = chat.metrics
@@ -131,6 +139,7 @@ class ChatViewModel @Inject constructor(
                 fullMessages = preMessagesRaw,
                 settings = currentSettings
             )
+            val workingContext = workingMemoryManager.buildWorkingContext(_state.value.taskId)
 
             runCatching {
                 repo.send(
@@ -143,7 +152,8 @@ class ChatViewModel @Inject constructor(
                             communicationLanguage = _state.value.communicationLanguage,
                             customFields = _state.value.longTermFields
                         )
-                    )
+                    ),
+                    workingContext = workingContext
                 ) // история уже с userMsg
             }.onSuccess { result ->
                 val latencyMs = android.os.SystemClock.elapsedRealtime() - start
@@ -161,6 +171,23 @@ class ChatViewModel @Inject constructor(
 
                 val assistantMsg = UiChatMessage(role = Role.ASSISTANT, text = result.content.orEmpty())
                 val updatedMessagesRaw = preMessagesRaw + assistantMsg
+                runCatching {
+                    val currentWorkingMemoryState = workingMemoryManager.getState(_state.value.taskId)
+                    val plan = repo.extractWorkingMemoryWritePlan(
+                        settings = currentSettings,
+                        currentState = currentWorkingMemoryState,
+                        userMessage = userMsg,
+                        assistantMessage = assistantMsg
+                    )
+                    if (plan != null) {
+                        val updateResult = workingMemoryManager.updateByPlan(_state.value.taskId, plan)
+                        if (updateResult is ValidationResult.Valid) {
+                            _state.value = _state.value.copy(
+                                workingMemoryContext = workingMemoryManager.buildWorkingContext(_state.value.taskId)
+                            )
+                        }
+                    }
+                }
                 val (updatedFacts, updatedFactsMessageCount) = runCatching {
                     updateFactsIfNeeded(
                         facts = preFacts,

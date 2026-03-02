@@ -24,6 +24,7 @@ fun FactsScreen(
     profileDescription: String,
     communicationLanguage: String,
     longTermFields: List<MemoryField>,
+    workingMemoryContext: String,
     totalUsageTokens: Int,
     userMessagesCount: Int,
     assistantMessagesCount: Int,
@@ -62,6 +63,7 @@ fun FactsScreen(
             longTermFields.forEach { field ->
                 MemoryCard(title = field.key, value = field.value)
             }
+            MemoryCard(title = "Working Memory", value = workingMemoryContext)
         }
     }
 }

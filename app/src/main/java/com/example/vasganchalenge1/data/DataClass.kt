@@ -50,8 +50,42 @@ data class LongTermMemory(
     val customFields: List<MemoryField> = emptyList()
 )
 
-data class WorkingMemory(
-    val fields: List<MemoryField> = emptyList()
+enum class WorkingMemoryStatus {
+    NEW, IN_PROGRESS, BLOCKED, DONE
+}
+
+data class WorkingMemoryState(
+    val taskId: String = "",
+    val goal: String? = null,
+    val constraints: List<String> = emptyList(),
+    val decisions: List<String> = emptyList(),
+    val openQuestions: List<String> = emptyList(),
+    val nextSteps: List<String> = emptyList(),
+    val artifacts: Map<String, String> = emptyMap(),
+    val status: WorkingMemoryStatus = WorkingMemoryStatus.NEW,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+data class WorkingMemoryPatch(
+    val setGoal: String? = null,
+    val addConstraints: List<String> = emptyList(),
+    val removeConstraints: List<String> = emptyList(),
+    val addDecisions: List<String> = emptyList(),
+    val removeDecisions: List<String> = emptyList(),
+    val addOpenQuestions: List<String> = emptyList(),
+    val closeOpenQuestions: List<String> = emptyList(),
+    val addNextSteps: List<String> = emptyList(),
+    val removeNextSteps: List<String> = emptyList(),
+    val putArtifacts: Map<String, String> = emptyMap(),
+    val removeArtifacts: List<String> = emptyList(),
+    val setStatus: WorkingMemoryStatus? = null,
+    val clearAll: Boolean = false
+)
+
+data class WorkingMemoryWritePlan(
+    val patch: WorkingMemoryPatch,
+    val reason: String,
+    val confidence: Double
 )
 
 data class Profile(
@@ -66,7 +100,7 @@ data class Profile(
 data class TaskItem(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
-    val workingMemory: WorkingMemory = WorkingMemory(),
+    val workingMemory: WorkingMemoryState = WorkingMemoryState(taskId = id),
     val chats: List<Chat> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()

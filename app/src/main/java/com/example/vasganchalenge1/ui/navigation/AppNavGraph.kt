@@ -147,6 +147,7 @@ fun AppNavGraph() {
                 profileDescription = state.profileDescription,
                 communicationLanguage = state.communicationLanguage,
                 longTermFields = state.longTermFields,
+                workingMemoryContext = state.workingMemoryContext,
                 totalUsageTokens = state.metrics.firstOrNull()?.totalUsageToken ?: 0,
                 userMessagesCount = state.messages.count { it.role == Role.USER },
                 assistantMessagesCount = state.messages.count { it.role == Role.ASSISTANT },

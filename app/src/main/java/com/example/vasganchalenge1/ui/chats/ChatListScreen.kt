@@ -33,15 +33,24 @@ fun ChatListScreen(
     Scaffold(
         topBar = {
             Row(
-                Modifier.fillMaxWidth().padding(16.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
-                Column {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)
+                ) {
                     Text("Чаты", style = MaterialTheme.typography.titleLarge)
                     Text(state.taskTitle, style = MaterialTheme.typography.bodySmall)
                 }
-                Row {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     TextButton(onClick = onBack) { Text("Назад") }
                     Button(onClick = onCreateChat) { Text("Новый чат") }
                 }
