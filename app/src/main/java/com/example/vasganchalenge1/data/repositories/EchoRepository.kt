@@ -1,6 +1,9 @@
 package com.example.vasganchalenge1.data.repositories
 
 import com.example.vasganchalenge1.data.ChatRequest
+import com.example.vasganchalenge1.data.LongTermMemory
+import com.example.vasganchalenge1.data.LongTermMemoryPatch
+import com.example.vasganchalenge1.data.LongTermMemoryWritePlan
 import com.example.vasganchalenge1.data.Message
 import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.UiChatMessage
@@ -18,6 +21,7 @@ class EchoRepository  @Inject constructor(
     moshi: Moshi
 ) {
     private val workingMemoryWritePlanAdapter = moshi.adapter(WorkingMemoryWritePlan::class.java)
+    private val longTermWritePlanAdapter = moshi.adapter(LongTermMemoryWritePlan::class.java)
     private val mapAdapter = moshi.adapter<Map<String, Any?>>(
         Types.newParameterizedType(
             Map::class.java,
@@ -203,6 +207,57 @@ class EchoRepository  @Inject constructor(
             ?: fallbackParseWorkingMemoryWritePlan(json)
     }
 
+    suspend fun extractLongTermMemoryWritePlan(
+        settings: AppSettings,
+        currentState: LongTermMemory,
+        userMessage: UiChatMessage,
+        assistantMessage: UiChatMessage
+    ): LongTermMemoryWritePlan? {
+        val response = api.chatCompletion(
+            ChatRequest(
+                model = settings.model,
+                messages = buildList {
+                    add(
+                        Message(
+                            "system",
+                            "You update profile long-term memory.\n" +
+                                    "Return ONLY valid JSON exactly matching this Kotlin shape:\n" +
+                                    "{\n" +
+                                    "  \"patch\": {\n" +
+                                    "    \"setProfileDescription\": \"optional string or null\",\n" +
+                                    "    \"setCommunicationLanguage\": \"optional string or null\",\n" +
+                                    "    \"putCustomFields\": {\"key\": \"value\"},\n" +
+                                    "    \"removeCustomFields\": [\"key\"],\n" +
+                                    "    \"clearAll\": false\n" +
+                                    "  },\n" +
+                                    "  \"reason\": \"non-empty string\",\n" +
+                                    "  \"confidence\": 0.85\n" +
+                                    "}\n" +
+                                    "Capture only durable user profile information: identity, stable preferences, persistent constraints, and long-lived communication preferences.\n" +
+                                    "Do not store transient task details, one-off next steps, or conversation-local facts.\n" +
+                                    "If there is nothing worth saving, still return a VALID non-empty patch, for example setCommunicationLanguage.\n" +
+                                    "Return JSON only. No markdown."
+                        )
+                    )
+                    add(Message("user", "Current LongTermMemory JSON:\n${longTermMemoryToJson(currentState)}"))
+                    add(Message("user", "Latest user message:\n${userMessage.text}"))
+                    add(Message("user", "Latest assistant message:\n${assistantMessage.text}"))
+                    add(Message("user", "Return JSON for LongTermMemoryWritePlan only."))
+                },
+                stop = null,
+                max_tokens = 400,
+                temperature = 0.0
+            )
+        )
+
+        val raw = response.choices.firstOrNull()?.message?.content?.trim().orEmpty()
+        if (raw.isBlank()) return null
+
+        val json = extractJsonObject(raw) ?: return null
+        return runCatching { longTermWritePlanAdapter.fromJson(json) }.getOrNull()
+            ?: fallbackParseLongTermMemoryWritePlan(json)
+    }
+
     private fun fallbackParseWorkingMemoryWritePlan(json: String): WorkingMemoryWritePlan? {
         val root = runCatching { mapAdapter.fromJson(json) }.getOrNull() ?: return null
         val patchMap = root["patch"] as? Map<*, *> ?: return null
@@ -255,6 +310,35 @@ class EchoRepository  @Inject constructor(
             confidence = confidence.coerceIn(0.0, 1.0)
         )
     }
+
+    private fun fallbackParseLongTermMemoryWritePlan(json: String): LongTermMemoryWritePlan? {
+        val root = runCatching { mapAdapter.fromJson(json) }.getOrNull() ?: return null
+        val patchMap = root["patch"] as? Map<*, *> ?: return null
+
+        val reason = (root["reason"] as? String)?.takeIf { it.isNotBlank() }
+            ?: "Fallback parsed long-term memory update."
+        val confidence = (root["confidence"] as? Number)?.toDouble() ?: 0.6
+
+        val patch = LongTermMemoryPatch(
+            setProfileDescription = patchMap["setProfileDescription"] as? String
+                ?: patchMap["profileDescription"] as? String,
+            setCommunicationLanguage = patchMap["setCommunicationLanguage"] as? String
+                ?: patchMap["communicationLanguage"] as? String,
+            putCustomFields = stringMap(
+                patchMap["putCustomFields"] ?: patchMap["customFields"] ?: patchMap["fields"]
+            ),
+            removeCustomFields = stringList(
+                patchMap["removeCustomFields"] ?: patchMap["removeFields"]
+            ),
+            clearAll = patchMap["clearAll"] as? Boolean ?: false
+        )
+
+        return LongTermMemoryWritePlan(
+            patch = patch,
+            reason = reason,
+            confidence = confidence.coerceIn(0.0, 1.0)
+        )
+    }
 }
 
 data class DataResponse(val content: String?, val tokensIn: Int?, val tokenOut: Int?)
@@ -274,6 +358,22 @@ private fun workingMemoryStateToJson(state: WorkingMemoryState): String {
         append("}")
         append(",\"status\":\"").append(state.status.name).append("\"")
         append(",\"updatedAt\":").append(state.updatedAt)
+        append("}")
+    }
+}
+
+private fun longTermMemoryToJson(state: LongTermMemory): String {
+    return buildString {
+        append("{")
+        append("\"mode\":\"").append(state.mode.name).append("\",")
+        append("\"profileDescription\":\"").append(escapeJson(state.profileDescription)).append("\",")
+        append("\"communicationLanguage\":\"").append(escapeJson(state.communicationLanguage)).append("\",")
+        append("\"customFields\":{")
+        append(state.customFields.joinToString(",") {
+            "\"${escapeJson(it.key)}\":\"${escapeJson(it.value)}\""
+        })
+        append("},")
+        append("\"updatedAt\":").append(state.updatedAt)
         append("}")
     }
 }

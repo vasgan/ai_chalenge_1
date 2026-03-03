@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.vasganchalenge1.data.Chat
 import com.example.vasganchalenge1.data.LongTermMemory
+import com.example.vasganchalenge1.data.LongTermMode
 import com.example.vasganchalenge1.data.Profile
 import com.example.vasganchalenge1.data.TaskItem
 import com.example.vasganchalenge1.data.WorkingMemoryState
@@ -40,8 +41,11 @@ class ChatStoreRepository @Inject constructor(
         context.dataStore.edit { it[key] = json }
     }
 
-    suspend fun createProfile(title: String): Profile {
-        val newProfile = Profile(title = title)
+    suspend fun createProfile(title: String, longTermMode: LongTermMode): Profile {
+        val newProfile = Profile(
+            title = title,
+            longTermMemory = LongTermMemory(mode = longTermMode)
+        )
         val profiles = profilesFlow.first()
         saveAll(listOf(newProfile) + profiles)
         return newProfile

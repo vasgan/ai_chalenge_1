@@ -2,6 +2,7 @@ package com.example.vasganchalenge1.ui.profiles
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.vasganchalenge1.data.LongTermMode
 import com.example.vasganchalenge1.data.Profile
 import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,9 +29,9 @@ class ProfileListViewModel @Inject constructor(
         }
     }
 
-    fun createProfile(title: String, onDone: (String) -> Unit) {
+    fun createProfile(title: String, longTermMode: LongTermMode, onDone: (String) -> Unit) {
         viewModelScope.launch {
-            val profile = store.createProfile(title)
+            val profile = store.createProfile(title, longTermMode)
             onDone(profile.id)
         }
     }

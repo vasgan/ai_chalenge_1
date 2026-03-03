@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.vasganchalenge1.data.LongTermMemory
+import com.example.vasganchalenge1.data.LongTermMode
 import com.example.vasganchalenge1.data.MemoryField
 import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.RunMetric
@@ -12,6 +13,7 @@ import com.example.vasganchalenge1.data.repositories.AppSettings
 import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
 import com.example.vasganchalenge1.data.repositories.ContextMode
 import com.example.vasganchalenge1.data.repositories.EchoRepository
+import com.example.vasganchalenge1.data.repositories.LongTermMemoryManager
 import com.example.vasganchalenge1.data.repositories.ValidationResult
 import com.example.vasganchalenge1.data.repositories.WorkingMemoryManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -26,6 +28,7 @@ class ChatViewModel @Inject constructor(
     private val repo: EchoRepository,
     private val store: ChatStoreRepository,
     private val workingMemoryManager: WorkingMemoryManager,
+    private val longTermMemoryManager: LongTermMemoryManager,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val chatId: String = checkNotNull(savedStateHandle["chatId"])
@@ -56,6 +59,7 @@ class ChatViewModel @Inject constructor(
                     branchedFromMessageId = chat.branchedFromMessageId,
                     title = chat.title,
                     facts = chat.facts,
+                    longTermMode = profile.longTermMemory.mode,
                     profileDescription = profile.longTermMemory.profileDescription,
                     communicationLanguage = profile.longTermMemory.communicationLanguage,
                     longTermFields = profile.longTermMemory.customFields,
@@ -185,6 +189,30 @@ class ChatViewModel @Inject constructor(
                             _state.value = _state.value.copy(
                                 workingMemoryContext = workingMemoryManager.buildWorkingContext(_state.value.taskId)
                             )
+                        }
+                    }
+                }
+                runCatching {
+                    if (_state.value.longTermMode == LongTermMode.AUTO) {
+                        val currentLongTermState = longTermMemoryManager.getState(_state.value.profileId)
+                        val plan = repo.extractLongTermMemoryWritePlan(
+                            settings = currentSettings,
+                            currentState = currentLongTermState,
+                            userMessage = userMsg,
+                            assistantMessage = assistantMsg
+                        )
+                        if (plan != null) {
+                            val updateResult =
+                                longTermMemoryManager.updateByPlan(_state.value.profileId, plan)
+                            if (updateResult is ValidationResult.Valid) {
+                                val updatedLongTerm =
+                                    longTermMemoryManager.getState(_state.value.profileId)
+                                _state.value = _state.value.copy(
+                                    profileDescription = updatedLongTerm.profileDescription,
+                                    communicationLanguage = updatedLongTerm.communicationLanguage,
+                                    longTermFields = updatedLongTerm.customFields
+                                )
+                            }
                         }
                     }
                 }

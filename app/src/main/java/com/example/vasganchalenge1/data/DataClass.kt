@@ -44,10 +44,30 @@ data class MemoryField(
     val value: String
 )
 
+enum class LongTermMode {
+    MANUAL, AUTO
+}
+
 data class LongTermMemory(
+    val mode: LongTermMode = LongTermMode.MANUAL,
     val profileDescription: String = "",
     val communicationLanguage: String = "",
-    val customFields: List<MemoryField> = emptyList()
+    val customFields: List<MemoryField> = emptyList(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+data class LongTermMemoryPatch(
+    val setProfileDescription: String? = null,
+    val setCommunicationLanguage: String? = null,
+    val putCustomFields: Map<String, String> = emptyMap(),
+    val removeCustomFields: List<String> = emptyList(),
+    val clearAll: Boolean = false
+)
+
+data class LongTermMemoryWritePlan(
+    val patch: LongTermMemoryPatch,
+    val reason: String,
+    val confidence: Double
 )
 
 enum class WorkingMemoryStatus {

@@ -16,11 +16,13 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.vasganchalenge1.data.LongTermMode
 import com.example.vasganchalenge1.data.MemoryField
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FactsScreen(
+    longTermMode: LongTermMode,
     profileDescription: String,
     communicationLanguage: String,
     longTermFields: List<MemoryField>,
@@ -58,11 +60,15 @@ fun FactsScreen(
                 modifier = Modifier.padding(top = 8.dp),
                 style = MaterialTheme.typography.bodyMedium
             )
-            MemoryCard(title = "Описание профиля", value = profileDescription)
-            MemoryCard(title = "Язык общения", value = communicationLanguage)
-            longTermFields.forEach { field ->
-                MemoryCard(title = field.key, value = field.value)
-            }
+            MemoryCard(
+                title = "LongTerm Memory",
+                value = buildLongTermMemoryBlock(
+                    mode = longTermMode,
+                    profileDescription = profileDescription,
+                    communicationLanguage = communicationLanguage,
+                    longTermFields = longTermFields
+                )
+            )
             MemoryCard(title = "Working Memory", value = workingMemoryContext)
         }
     }
@@ -80,4 +86,27 @@ private fun MemoryCard(title: String, value: String) {
             )
         }
     }
+}
+
+private fun buildLongTermMemoryBlock(
+    mode: LongTermMode,
+    profileDescription: String,
+    communicationLanguage: String,
+    longTermFields: List<MemoryField>
+): String {
+    val sections = buildList {
+        add("mode: ${mode.name}")
+        profileDescription.takeIf { it.isNotBlank() }?.let {
+            add("profile_description: $it")
+        }
+        communicationLanguage.takeIf { it.isNotBlank() }?.let {
+            add("communication_language: $it")
+        }
+        longTermFields.forEach { field ->
+            if (field.key.isNotBlank() && field.value.isNotBlank()) {
+                add("${field.key}: ${field.value}")
+            }
+        }
+    }
+    return sections.joinToString("\n").ifBlank { "Не заполнено" }
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.vasganchalenge1.data.LongTermMemory
+import com.example.vasganchalenge1.data.LongTermMode
 import com.example.vasganchalenge1.data.MemoryField
 import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,9 +22,11 @@ data class EditableMemoryField(
 data class ProfileSettingsUiState(
     val profileId: String = "",
     val profileTitle: String = "",
+    val longTermMode: LongTermMode = LongTermMode.MANUAL,
     val profileDescription: String = "",
     val communicationLanguage: String = "",
-    val customFields: List<EditableMemoryField> = emptyList()
+    val customFields: List<EditableMemoryField> = emptyList(),
+    val isEditable: Boolean = true
 )
 
 @HiltViewModel
@@ -43,31 +46,37 @@ class ProfileSettingsViewModel @Inject constructor(
                 _state.value = ProfileSettingsUiState(
                     profileId = profile.id,
                     profileTitle = profile.title,
+                    longTermMode = profile.longTermMemory.mode,
                     profileDescription = profile.longTermMemory.profileDescription,
                     communicationLanguage = profile.longTermMemory.communicationLanguage,
                     customFields = profile.longTermMemory.customFields.map {
                         EditableMemoryField(key = it.key, value = it.value)
-                    }
+                    },
+                    isEditable = profile.longTermMemory.mode == LongTermMode.MANUAL
                 )
             }
         }
     }
 
     fun setProfileDescription(value: String) {
+        if (!_state.value.isEditable) return
         _state.value = _state.value.copy(profileDescription = value)
     }
 
     fun setCommunicationLanguage(value: String) {
+        if (!_state.value.isEditable) return
         _state.value = _state.value.copy(communicationLanguage = value)
     }
 
     fun addCustomField() {
+        if (!_state.value.isEditable) return
         _state.value = _state.value.copy(
             customFields = _state.value.customFields + EditableMemoryField()
         )
     }
 
     fun updateCustomFieldKey(id: Long, value: String) {
+        if (!_state.value.isEditable) return
         _state.value = _state.value.copy(
             customFields = _state.value.customFields.map {
                 if (it.id == id) it.copy(key = value) else it
@@ -76,6 +85,7 @@ class ProfileSettingsViewModel @Inject constructor(
     }
 
     fun updateCustomFieldValue(id: Long, value: String) {
+        if (!_state.value.isEditable) return
         _state.value = _state.value.copy(
             customFields = _state.value.customFields.map {
                 if (it.id == id) it.copy(value = value) else it
@@ -84,16 +94,22 @@ class ProfileSettingsViewModel @Inject constructor(
     }
 
     fun removeCustomField(id: Long) {
+        if (!_state.value.isEditable) return
         _state.value = _state.value.copy(
             customFields = _state.value.customFields.filterNot { it.id == id }
         )
     }
 
     fun save(onDone: () -> Unit) {
+        if (!_state.value.isEditable) {
+            onDone()
+            return
+        }
         viewModelScope.launch {
             store.updateProfileLongTerm(
                 profileId = profileId,
                 longTermMemory = LongTermMemory(
+                    mode = _state.value.longTermMode,
                     profileDescription = _state.value.profileDescription.trim(),
                     communicationLanguage = _state.value.communicationLanguage.trim(),
                     customFields = _state.value.customFields.mapNotNull {

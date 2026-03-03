@@ -41,7 +41,7 @@ fun ProfileSettingsScreen(
                     TextButton(onClick = onBack) { Text("Назад") }
                 },
                 actions = {
-                    TextButton(onClick = onSave) { Text("Сохранить") }
+                    TextButton(onClick = onSave, enabled = state.isEditable) { Text("Сохранить") }
                 }
             )
         }
@@ -59,19 +59,35 @@ fun ProfileSettingsScreen(
                 "LongTerm память профиля",
                 style = MaterialTheme.typography.bodySmall
             )
+            Text(
+                text = if (state.longTermMode.name == "AUTO") {
+                    "Режим: автоматически составляемая"
+                } else {
+                    "Режим: ручное заполнение"
+                },
+                style = MaterialTheme.typography.bodyMedium
+            )
+            if (!state.isEditable) {
+                Text(
+                    text = "В этом профиле LongTerm обновляется автоматически из диалогов. Ручное редактирование отключено.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
             OutlinedTextField(
                 value = state.profileDescription,
                 onValueChange = onProfileDescriptionChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Описание профиля") }
+                label = { Text("Описание профиля") },
+                enabled = state.isEditable
             )
 
             OutlinedTextField(
                 value = state.communicationLanguage,
                 onValueChange = onCommunicationLanguageChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Язык общения") }
+                label = { Text("Язык общения") },
+                enabled = state.isEditable
             )
 
             Text("Дополнительные поля", style = MaterialTheme.typography.titleSmall)
@@ -85,21 +101,26 @@ fun ProfileSettingsScreen(
                         value = field.key,
                         onValueChange = { onCustomFieldKeyChange(field.id, it) },
                         modifier = Modifier.weight(1f),
-                        label = { Text("Ключ") }
+                        label = { Text("Ключ") },
+                        enabled = state.isEditable
                     )
                     OutlinedTextField(
                         value = field.value,
                         onValueChange = { onCustomFieldValueChange(field.id, it) },
                         modifier = Modifier.weight(1f),
-                        label = { Text("Значение") }
+                        label = { Text("Значение") },
+                        enabled = state.isEditable
                     )
-                    TextButton(onClick = { onRemoveCustomField(field.id) }) {
+                    TextButton(
+                        onClick = { onRemoveCustomField(field.id) },
+                        enabled = state.isEditable
+                    ) {
                         Text("Удалить")
                     }
                 }
             }
 
-            Button(onClick = onAddCustomField) {
+            Button(onClick = onAddCustomField, enabled = state.isEditable) {
                 Text("Добавить поле")
             }
         }

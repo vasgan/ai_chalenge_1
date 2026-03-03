@@ -2,6 +2,7 @@ package com.example.vasganchalenge1.ui
 
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
+import com.example.vasganchalenge1.data.LongTermMode
 import com.example.vasganchalenge1.data.MemoryField
 
 data class ChatUiState(
@@ -15,6 +16,7 @@ data class ChatUiState(
     val branchedFromMessageId: Long? = null,
     val title: String = "",
     val facts: String = "",
+    val longTermMode: LongTermMode = LongTermMode.MANUAL,
     val profileDescription: String = "",
     val communicationLanguage: String = "",
     val longTermFields: List<MemoryField> = emptyList(),

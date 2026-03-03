@@ -40,8 +40,8 @@ fun AppNavGraph() {
                 onOpenProfile = { profileId ->
                     navController.navigate(Routes.tasks(profileId))
                 },
-                onCreateProfile = { title ->
-                    vm.createProfile(title) { profileId ->
+                onCreateProfile = { title, longTermMode ->
+                    vm.createProfile(title, longTermMode) { profileId ->
                         navController.navigate(Routes.tasks(profileId))
                     }
                 }
@@ -144,6 +144,7 @@ fun AppNavGraph() {
             val state = vm.state.collectAsState().value
 
             FactsScreen(
+                longTermMode = state.longTermMode,
                 profileDescription = state.profileDescription,
                 communicationLanguage = state.communicationLanguage,
                 longTermFields = state.longTermFields,
