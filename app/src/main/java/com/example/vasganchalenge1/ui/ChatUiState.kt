@@ -4,6 +4,7 @@ import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.LongTermMode
 import com.example.vasganchalenge1.data.MemoryField
+import com.example.vasganchalenge1.data.taskfsm.TaskState
 
 data class ChatUiState(
     val chatId: String = "",
@@ -21,6 +22,7 @@ data class ChatUiState(
     val communicationLanguage: String = "",
     val longTermFields: List<MemoryField> = emptyList(),
     val workingMemoryContext: String = "",
+    val taskStateDebug: TaskState? = null,
     val factsMessageCount: Int = 0,
     val input: String = "",
     val isLoading: Boolean = false,

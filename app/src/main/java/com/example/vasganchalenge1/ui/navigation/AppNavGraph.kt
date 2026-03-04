@@ -132,7 +132,11 @@ fun AppNavGraph() {
                     }
                 },
                 onOpenSettings = { navController.navigate(Routes.settings(state.chatId)) },
-                onOpenFacts = { navController.navigate(Routes.facts(state.chatId)) }
+                onOpenFacts = { navController.navigate(Routes.facts(state.chatId)) },
+                onPauseTask = vm::pauseTask,
+                onResumeTask = vm::resumeTask,
+                onCancelTask = vm::cancelTask,
+                onResetTask = vm::resetTask
             )
         }
 

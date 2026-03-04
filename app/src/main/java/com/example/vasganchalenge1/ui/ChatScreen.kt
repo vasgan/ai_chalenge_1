@@ -35,6 +35,12 @@ import androidx.compose.ui.unit.dp
 import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
+import com.example.vasganchalenge1.data.taskfsm.ExpectedAction
+import com.example.vasganchalenge1.data.taskfsm.TaskState
+import com.example.vasganchalenge1.data.taskfsm.TaskStep
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun MainRoute(
@@ -53,7 +59,11 @@ fun MainRoute(
         onOpenSettings = onOpenSettings,
         onOpenFacts = onOpenFacts,
         onOpenBranches = onOpenBranches,
-        onCreateBranch = onCreateBranch
+        onCreateBranch = onCreateBranch,
+        onPauseTask = vm::pauseTask,
+        onResumeTask = vm::resumeTask,
+        onCancelTask = vm::cancelTask,
+        onResetTask = vm::resetTask
     )
 }
 
@@ -65,7 +75,11 @@ fun ChatScreen(
     onOpenSettings: () -> Unit,
     onOpenFacts: () -> Unit,
     onOpenBranches: () -> Unit,
-    onCreateBranch: (Long) -> Unit
+    onCreateBranch: (Long) -> Unit,
+    onPauseTask: () -> Unit,
+    onResumeTask: () -> Unit,
+    onCancelTask: () -> Unit,
+    onResetTask: () -> Unit
 ) {
     val listState = rememberLazyListState()
 
@@ -140,6 +154,13 @@ fun ChatScreen(
         ) {
             // метрики (последняя строка)
             MetricsHeader(metrics = state.metrics)
+            TaskDebugPanel(
+                taskState = state.taskStateDebug,
+                onPauseTask = onPauseTask,
+                onResumeTask = onResumeTask,
+                onCancelTask = onCancelTask,
+                onResetTask = onResetTask
+            )
 
             Divider()
 
@@ -159,6 +180,48 @@ fun ChatScreen(
 
                 // чтобы низ не прилипал к bottomBar
                 item { Spacer(Modifier.height(60.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskDebugPanel(
+    taskState: TaskState?,
+    onPauseTask: () -> Unit,
+    onResumeTask: () -> Unit,
+    onCancelTask: () -> Unit,
+    onResetTask: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        tonalElevation = 1.dp,
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Task Debug Panel", style = MaterialTheme.typography.titleSmall)
+            if (taskState == null) {
+                Text("Task state not initialized", style = MaterialTheme.typography.bodySmall)
+            } else {
+                Text("Phase: ${taskState.phase}", style = MaterialTheme.typography.bodyMedium)
+                Text("Step: ${describeStep(taskState.currentStep)}", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "ExpectedAction: ${describeExpectedAction(taskState.expectedAction)}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text("Status: ${taskState.status}", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "updatedAt: ${formatTimestamp(taskState.updatedAt)}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onPauseTask) { Text("Pause") }
+                TextButton(onClick = onResumeTask) { Text("Resume") }
+                TextButton(onClick = onCancelTask) { Text("Cancel") }
+                TextButton(onClick = onResetTask) { Text("Reset task") }
             }
         }
     }
@@ -224,4 +287,26 @@ private fun ChatBubble(
             }
         }
     }
+}
+
+private fun describeStep(step: TaskStep): String {
+    return when (step) {
+        is TaskStep.CollectRequirements -> "id=${step.id}, missing=${step.missingFields.joinToString()}, collected=${step.collectedFields.keys.joinToString()}"
+        is TaskStep.CreatePlan -> "id=${step.id}, requirements=${step.requirements.keys.joinToString()}"
+        is TaskStep.ImplementFeature -> "id=${step.id}, featureKey=${step.featureKey}"
+        is TaskStep.RunChecks -> "id=${step.id}, target=${step.targetFeatureKey}"
+        is TaskStep.Finished -> "id=${step.id}, summary=${step.summary.take(80)}"
+    }
+}
+
+private fun describeExpectedAction(action: ExpectedAction): String {
+    return when (action) {
+        is ExpectedAction.UserReply -> "${action.type}, missing=${action.missingFields.joinToString()}"
+        is ExpectedAction.ToolCall -> "${action.type}, tool=${action.toolName}, hint=${action.hint.take(80)}"
+        is ExpectedAction.Idle -> "${action.type}, message=${action.message.take(80)}"
+    }
+}
+
+private fun formatTimestamp(timestamp: Long): String {
+    return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
 }

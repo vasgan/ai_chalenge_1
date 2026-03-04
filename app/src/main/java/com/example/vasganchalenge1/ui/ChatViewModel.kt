@@ -16,6 +16,9 @@ import com.example.vasganchalenge1.data.repositories.EchoRepository
 import com.example.vasganchalenge1.data.repositories.LongTermMemoryManager
 import com.example.vasganchalenge1.data.repositories.ValidationResult
 import com.example.vasganchalenge1.data.repositories.WorkingMemoryManager
+import com.example.vasganchalenge1.data.taskfsm.TaskEvent
+import com.example.vasganchalenge1.data.taskfsm.TaskFsmManager
+import com.example.vasganchalenge1.data.taskfsm.TaskStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -29,6 +32,7 @@ class ChatViewModel @Inject constructor(
     private val store: ChatStoreRepository,
     private val workingMemoryManager: WorkingMemoryManager,
     private val longTermMemoryManager: LongTermMemoryManager,
+    private val taskFsmManager: TaskFsmManager,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val chatId: String = checkNotNull(savedStateHandle["chatId"])
@@ -49,6 +53,7 @@ class ChatViewModel @Inject constructor(
                 } ?: return@collect
                 val chat = task.chats.firstOrNull { it.id == chatId } ?: return@collect
                 val workingMemoryContext = workingMemoryManager.buildWorkingContext(task.id)
+                val taskState = taskFsmManager.getOrCreate(task.id)
                 _state.value = _state.value.copy(
                     profileId = profile.id,
                     profileTitle = profile.title,
@@ -64,6 +69,7 @@ class ChatViewModel @Inject constructor(
                     communicationLanguage = profile.longTermMemory.communicationLanguage,
                     longTermFields = profile.longTermMemory.customFields,
                     workingMemoryContext = workingMemoryContext,
+                    taskStateDebug = taskState,
                     factsMessageCount = chat.factsMessageCount,
                     messages = chat.messages,
                     metrics = chat.metrics
@@ -84,10 +90,50 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun pauseTask() {
+        dispatchTaskEvent(TaskEvent.PauseRequested())
+    }
+
+    fun resumeTask() {
+        dispatchTaskEvent(TaskEvent.ResumeRequested())
+    }
+
+    fun cancelTask() {
+        dispatchTaskEvent(TaskEvent.CancelRequested())
+    }
+
+    fun resetTask() {
+        viewModelScope.launch {
+            val taskState = taskFsmManager.reset(_state.value.taskId)
+            _state.value = _state.value.copy(taskStateDebug = taskState, error = null)
+        }
+    }
+
     fun onSendClick() {
         val text = _state.value.input.trim()
         if (text.isEmpty()) {
             _state.value = _state.value.copy(error = "Введите текст")
+            return
+        }
+
+        val command = text.toTaskCommand()
+        if (command != null) {
+            _state.value = _state.value.copy(input = "")
+            when (command) {
+                TaskCommand.PAUSE -> pauseTask()
+                TaskCommand.RESUME -> resumeTask()
+                TaskCommand.CANCEL -> cancelTask()
+            }
+            return
+        }
+
+        val currentTaskState = _state.value.taskStateDebug
+        if (currentTaskState?.status == TaskStatus.PAUSED) {
+            _state.value = _state.value.copy(error = "Задача на паузе, напиши resume")
+            return
+        }
+        if (currentTaskState?.status == TaskStatus.CANCELLED) {
+            _state.value = _state.value.copy(error = "Задача отменена. Используй Reset task")
             return
         }
 
@@ -105,6 +151,22 @@ class ChatViewModel @Inject constructor(
         )
 
         viewModelScope.launch {
+            val reducedTaskState = taskFsmManager.dispatch(
+                taskId = _state.value.taskId,
+                event = TaskEvent.UserMessage(text)
+            )
+            _state.value = _state.value.copy(taskStateDebug = reducedTaskState)
+
+            if (reducedTaskState.status == TaskStatus.PAUSED) {
+                _state.value = _state.value.copy(
+                    input = text,
+                    isLoading = false,
+                    messages = _state.value.messages.dropLast(1),
+                    error = "Задача на паузе, напиши resume"
+                )
+                return@launch
+            }
+
             val currentFacts = _state.value.facts
             val currentFactsMessageCount = _state.value.factsMessageCount
             val preFactsResult = runCatching {
@@ -216,6 +278,9 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                 }
+                val taskStateAfterAssistant = runCatching {
+                    taskFsmManager.runPendingTool(_state.value.taskId)
+                }.getOrElse { _state.value.taskStateDebug }
                 val (updatedFacts, updatedFactsMessageCount) = runCatching {
                     updateFactsIfNeeded(
                         facts = preFacts,
@@ -233,6 +298,7 @@ class ChatViewModel @Inject constructor(
                     isLoading = false,
                     facts = updatedFacts,
                     factsMessageCount = updatedFactsMessageCount,
+                    taskStateDebug = taskStateAfterAssistant,
                     messages = updatedMessagesRaw,
                     metrics = updatedMetrics
                 )
@@ -249,6 +315,25 @@ class ChatViewModel @Inject constructor(
                     error = e.message ?: "Ошибка запроса"
                 )
             }
+        }
+    }
+
+    private fun dispatchTaskEvent(event: TaskEvent) {
+        viewModelScope.launch {
+            val taskState = taskFsmManager.dispatch(_state.value.taskId, event)
+            _state.value = _state.value.copy(
+                taskStateDebug = taskState,
+                error = when (event) {
+                    is TaskEvent.PauseRequested -> "Задача поставлена на паузу"
+                    is TaskEvent.ResumeRequested -> if (taskState.status == TaskStatus.ACTIVE) {
+                        null
+                    } else {
+                        "Не удалось возобновить задачу"
+                    }
+                    is TaskEvent.CancelRequested -> "Задача отменена"
+                    else -> null
+                }
+            )
         }
     }
 
@@ -308,6 +393,19 @@ class ChatViewModel @Inject constructor(
             ContextMode.FACTS -> fullMessages.takeLast(10)
             else -> fullMessages
         }
+    }
+}
+
+private enum class TaskCommand {
+    PAUSE, RESUME, CANCEL
+}
+
+private fun String.toTaskCommand(): TaskCommand? {
+    return when (trim().lowercase()) {
+        "pause", "пауза" -> TaskCommand.PAUSE
+        "resume", "продолжить" -> TaskCommand.RESUME
+        "cancel", "отмена" -> TaskCommand.CANCEL
+        else -> null
     }
 }
 
