@@ -68,6 +68,7 @@ class ChatViewModel @Inject constructor(
                     profileDescription = profile.longTermMemory.profileDescription,
                     communicationLanguage = profile.longTermMemory.communicationLanguage,
                     longTermFields = profile.longTermMemory.customFields,
+                    invariants = profile.invariants,
                     workingMemoryContext = workingMemoryContext,
                     taskStateDebug = taskState,
                     factsMessageCount = chat.factsMessageCount,
@@ -219,6 +220,7 @@ class ChatViewModel @Inject constructor(
                             customFields = _state.value.longTermFields
                         )
                     ),
+                    invariants = _state.value.invariants,
                     workingContext = workingContext
                 ) // история уже с userMsg
             }.onSuccess { result ->
@@ -235,7 +237,19 @@ class ChatViewModel @Inject constructor(
                     costUsd = cost
                 )
 
-                val assistantMsg = UiChatMessage(role = Role.ASSISTANT, text = result.content.orEmpty())
+                val assistantText = result.content.orEmpty()
+                val violatesInvariants = runCatching {
+                    repo.detectInvariantViolation(
+                        settings = currentSettings,
+                        invariants = _state.value.invariants,
+                        assistantMessage = assistantText
+                    )
+                }.getOrDefault(false)
+                val assistantMsg = UiChatMessage(
+                    role = Role.ASSISTANT,
+                    text = assistantText,
+                    violatesInvariants = violatesInvariants
+                )
                 val updatedMessagesRaw = preMessagesRaw + assistantMsg
                 runCatching {
                     val currentWorkingMemoryState = workingMemoryManager.getState(_state.value.taskId)

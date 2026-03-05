@@ -259,18 +259,39 @@ private fun ChatBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
+        val isInvariantViolation = !isUser && msg.violatesInvariants
+        val bubbleColor = if (isInvariantViolation) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.surface
+        }
+        val textColor = if (isInvariantViolation) {
+            MaterialTheme.colorScheme.onErrorContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        }
         Surface(
             shape = RoundedCornerShape(16.dp),
             tonalElevation = 2.dp,
+            color = bubbleColor,
             modifier = Modifier.widthIn(max = 320.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(
                     text = if (isUser) "You" else "Assistant",
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.labelMedium,
+                    color = textColor
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(msg.text, style = MaterialTheme.typography.bodyMedium)
+                Text(msg.text, style = MaterialTheme.typography.bodyMedium, color = textColor)
+                if (isInvariantViolation) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Violation: ответ нарушает инварианты профиля",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(

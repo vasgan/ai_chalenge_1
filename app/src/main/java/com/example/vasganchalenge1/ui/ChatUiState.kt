@@ -21,6 +21,7 @@ data class ChatUiState(
     val profileDescription: String = "",
     val communicationLanguage: String = "",
     val longTermFields: List<MemoryField> = emptyList(),
+    val invariants: List<String> = emptyList(),
     val workingMemoryContext: String = "",
     val taskStateDebug: TaskState? = null,
     val factsMessageCount: Int = 0,

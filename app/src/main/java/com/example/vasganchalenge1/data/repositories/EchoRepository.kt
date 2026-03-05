@@ -35,12 +35,24 @@ class EchoRepository  @Inject constructor(
         history: List<UiChatMessage>,
         facts: String,
         longTermMemoryJson: String,
+        invariants: List<String>,
         workingContext: String
     ): DataResponse {
         val messages = mutableListOf<Message>()
         val systemParts = buildList {
             if (longTermMemoryJson.isNotBlank() && longTermMemoryJson != "{}") {
                 add(longTermMemoryJson)
+            }
+            if (invariants.isNotEmpty()) {
+                val normalized = invariants.mapIndexed { index, invariant ->
+                    "${index + 1}. ${invariant.trim()}"
+                }.joinToString("\n")
+                add(
+                    "[PROFILE_INVARIANTS]\n$normalized\n[/PROFILE_INVARIANTS]\n" +
+                            "You must explicitly enforce these invariants.\n" +
+                            "Refuse to provide any solution that violates any invariant.\n" +
+                            "If user request conflicts with invariants, explain refusal and offer compliant alternatives."
+                )
             }
             if (workingContext.isNotBlank()) {
                 add(workingContext)
@@ -205,6 +217,49 @@ class EchoRepository  @Inject constructor(
         val json = extractJsonObject(raw) ?: return null
         return runCatching { workingMemoryWritePlanAdapter.fromJson(json) }.getOrNull()
             ?: fallbackParseWorkingMemoryWritePlan(json)
+    }
+
+    suspend fun detectInvariantViolation(
+        settings: AppSettings,
+        invariants: List<String>,
+        assistantMessage: String
+    ): Boolean {
+        if (invariants.isEmpty() || assistantMessage.isBlank()) return false
+        val response = api.chatCompletion(
+            ChatRequest(
+                model = settings.model,
+                messages = buildList {
+                    add(
+                        Message(
+                            "system",
+                            "You are a strict invariant checker.\n" +
+                                    "Return ONLY JSON: {\"violates\":true|false}.\n" +
+                                    "Set violates=true if assistant message proposes or encourages violating any invariant."
+                        )
+                    )
+                    add(
+                        Message(
+                            "user",
+                            "Invariants:\n${invariants.joinToString("\n") { "- $it" }}"
+                        )
+                    )
+                    add(
+                        Message(
+                            "user",
+                            "Assistant message:\n$assistantMessage"
+                        )
+                    )
+                },
+                stop = null,
+                max_tokens = 50,
+                temperature = 0.0
+            )
+        )
+
+        val raw = response.choices.firstOrNull()?.message?.content?.trim().orEmpty()
+        val json = extractJsonObject(raw) ?: return false
+        val parsed = runCatching { mapAdapter.fromJson(json) }.getOrNull()
+        return parsed?.get("violates") as? Boolean ?: false
     }
 
     suspend fun extractLongTermMemoryWritePlan(

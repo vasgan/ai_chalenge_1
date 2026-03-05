@@ -26,6 +26,7 @@ fun FactsScreen(
     profileDescription: String,
     communicationLanguage: String,
     longTermFields: List<MemoryField>,
+    invariants: List<String>,
     workingMemoryContext: String,
     totalUsageTokens: Int,
     userMessagesCount: Int,
@@ -69,6 +70,10 @@ fun FactsScreen(
                     longTermFields = longTermFields
                 )
             )
+            MemoryCard(
+                title = "Profile Invariants",
+                value = buildInvariantBlock(invariants)
+            )
             MemoryCard(title = "Working Memory", value = workingMemoryContext)
         }
     }
@@ -109,4 +114,9 @@ private fun buildLongTermMemoryBlock(
         }
     }
     return sections.joinToString("\n").ifBlank { "Не заполнено" }
+}
+
+private fun buildInvariantBlock(invariants: List<String>): String {
+    if (invariants.isEmpty()) return "Не заполнено"
+    return invariants.mapIndexed { index, value -> "${index + 1}. $value" }.joinToString("\n")
 }

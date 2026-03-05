@@ -112,6 +112,7 @@ data class Profile(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val longTermMemory: LongTermMemory = LongTermMemory(),
+    val invariants: List<String> = emptyList(),
     val tasks: List<TaskItem> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
@@ -144,7 +145,8 @@ data class Chat(
 data class UiChatMessage(
     val id: Long = System.currentTimeMillis(),
     val role: Role,
-    val text: String
+    val text: String,
+    val violatesInvariants: Boolean = false
 )
 
 enum class Role { USER, ASSISTANT }

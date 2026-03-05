@@ -183,6 +183,20 @@ class ChatStoreRepository @Inject constructor(
         )
     }
 
+    suspend fun updateProfileInvariants(profileId: String, invariants: List<String>) {
+        val normalized = invariants.map { it.trim().take(280) }.filter { it.isNotBlank() }
+        val profiles = profilesFlow.first()
+        saveAll(
+            profiles.map { profile ->
+                if (profile.id != profileId) profile
+                else profile.copy(
+                    invariants = normalized,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+        )
+    }
+
     suspend fun getProfileByChatId(chatId: String): Profile? =
         profilesFlow.first().firstOrNull { profile ->
             profile.tasks.any { task -> task.chats.any { it.id == chatId } }

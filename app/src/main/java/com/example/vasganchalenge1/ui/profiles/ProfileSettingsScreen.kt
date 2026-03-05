@@ -31,7 +31,10 @@ fun ProfileSettingsScreen(
     onAddCustomField: () -> Unit,
     onCustomFieldKeyChange: (Long, String) -> Unit,
     onCustomFieldValueChange: (Long, String) -> Unit,
-    onRemoveCustomField: (Long) -> Unit
+    onRemoveCustomField: (Long) -> Unit,
+    onAddInvariant: () -> Unit,
+    onInvariantChange: (Long, String) -> Unit,
+    onRemoveInvariant: (Long) -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -41,7 +44,7 @@ fun ProfileSettingsScreen(
                     TextButton(onClick = onBack) { Text("Назад") }
                 },
                 actions = {
-                    TextButton(onClick = onSave, enabled = state.isEditable) { Text("Сохранить") }
+                    TextButton(onClick = onSave) { Text("Сохранить") }
                 }
             )
         }
@@ -122,6 +125,33 @@ fun ProfileSettingsScreen(
 
             Button(onClick = onAddCustomField, enabled = state.isEditable) {
                 Text("Добавить поле")
+            }
+
+            Text("Инварианты профиля", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Ассистент не должен предлагать решения, которые нарушают эти правила.",
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            state.invariants.forEach { invariant ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = invariant.value,
+                        onValueChange = { onInvariantChange(invariant.id, it) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Инвариант") }
+                    )
+                    TextButton(onClick = { onRemoveInvariant(invariant.id) }) {
+                        Text("Удалить")
+                    }
+                }
+            }
+
+            Button(onClick = onAddInvariant) {
+                Text("Добавить инвариант")
             }
         }
     }

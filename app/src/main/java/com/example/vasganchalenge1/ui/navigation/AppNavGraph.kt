@@ -88,7 +88,10 @@ fun AppNavGraph() {
                 onAddCustomField = vm::addCustomField,
                 onCustomFieldKeyChange = vm::updateCustomFieldKey,
                 onCustomFieldValueChange = vm::updateCustomFieldValue,
-                onRemoveCustomField = vm::removeCustomField
+                onRemoveCustomField = vm::removeCustomField,
+                onAddInvariant = vm::addInvariant,
+                onInvariantChange = vm::updateInvariant,
+                onRemoveInvariant = vm::removeInvariant
             )
         }
 
@@ -152,6 +155,7 @@ fun AppNavGraph() {
                 profileDescription = state.profileDescription,
                 communicationLanguage = state.communicationLanguage,
                 longTermFields = state.longTermFields,
+                invariants = state.invariants,
                 workingMemoryContext = state.workingMemoryContext,
                 totalUsageTokens = state.metrics.firstOrNull()?.totalUsageToken ?: 0,
                 userMessagesCount = state.messages.count { it.role == Role.USER },

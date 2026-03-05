@@ -19,6 +19,11 @@ data class EditableMemoryField(
     val value: String = ""
 )
 
+data class EditableInvariant(
+    val id: Long = System.nanoTime(),
+    val value: String = ""
+)
+
 data class ProfileSettingsUiState(
     val profileId: String = "",
     val profileTitle: String = "",
@@ -26,6 +31,7 @@ data class ProfileSettingsUiState(
     val profileDescription: String = "",
     val communicationLanguage: String = "",
     val customFields: List<EditableMemoryField> = emptyList(),
+    val invariants: List<EditableInvariant> = emptyList(),
     val isEditable: Boolean = true
 )
 
@@ -52,6 +58,7 @@ class ProfileSettingsViewModel @Inject constructor(
                     customFields = profile.longTermMemory.customFields.map {
                         EditableMemoryField(key = it.key, value = it.value)
                     },
+                    invariants = profile.invariants.map { EditableInvariant(value = it) },
                     isEditable = profile.longTermMemory.mode == LongTermMode.MANUAL
                 )
             }
@@ -100,24 +107,47 @@ class ProfileSettingsViewModel @Inject constructor(
         )
     }
 
+    fun addInvariant() {
+        _state.value = _state.value.copy(
+            invariants = _state.value.invariants + EditableInvariant()
+        )
+    }
+
+    fun updateInvariant(id: Long, value: String) {
+        _state.value = _state.value.copy(
+            invariants = _state.value.invariants.map {
+                if (it.id == id) it.copy(value = value) else it
+            }
+        )
+    }
+
+    fun removeInvariant(id: Long) {
+        _state.value = _state.value.copy(
+            invariants = _state.value.invariants.filterNot { it.id == id }
+        )
+    }
+
     fun save(onDone: () -> Unit) {
-        if (!_state.value.isEditable) {
-            onDone()
-            return
-        }
+        val snapshot = _state.value
         viewModelScope.launch {
-            store.updateProfileLongTerm(
-                profileId = profileId,
-                longTermMemory = LongTermMemory(
-                    mode = _state.value.longTermMode,
-                    profileDescription = _state.value.profileDescription.trim(),
-                    communicationLanguage = _state.value.communicationLanguage.trim(),
-                    customFields = _state.value.customFields.mapNotNull {
-                        val key = it.key.trim()
-                        val value = it.value.trim()
-                        if (key.isEmpty() || value.isEmpty()) null else MemoryField(key, value)
-                    }
+            if (snapshot.isEditable) {
+                store.updateProfileLongTerm(
+                    profileId = profileId,
+                    longTermMemory = LongTermMemory(
+                        mode = snapshot.longTermMode,
+                        profileDescription = snapshot.profileDescription.trim(),
+                        communicationLanguage = snapshot.communicationLanguage.trim(),
+                        customFields = snapshot.customFields.mapNotNull {
+                            val key = it.key.trim()
+                            val value = it.value.trim()
+                            if (key.isEmpty() || value.isEmpty()) null else MemoryField(key, value)
+                        }
+                    )
                 )
+            }
+            store.updateProfileInvariants(
+                profileId = profileId,
+                invariants = snapshot.invariants.map { it.value }
             )
             onDone()
         }
