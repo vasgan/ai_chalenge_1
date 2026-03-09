@@ -18,6 +18,9 @@ import com.example.vasganchalenge1.data.repositories.ValidationResult
 import com.example.vasganchalenge1.data.repositories.WorkingMemoryManager
 import com.example.vasganchalenge1.data.taskfsm.TaskEvent
 import com.example.vasganchalenge1.data.taskfsm.TaskFsmManager
+import com.example.vasganchalenge1.data.taskfsm.TaskPhase
+import com.example.vasganchalenge1.data.taskfsm.TaskState
+import com.example.vasganchalenge1.data.taskfsm.TaskStep
 import com.example.vasganchalenge1.data.taskfsm.TaskStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -207,6 +210,7 @@ class ChatViewModel @Inject constructor(
                 settings = currentSettings
             )
             val workingContext = workingMemoryManager.buildWorkingContext(_state.value.taskId)
+            val taskPhasePrompt = buildTaskPhasePrompt(_state.value.taskStateDebug)
 
             runCatching {
                 repo.send(
@@ -221,7 +225,8 @@ class ChatViewModel @Inject constructor(
                         )
                     ),
                     invariants = _state.value.invariants,
-                    workingContext = workingContext
+                    workingContext = workingContext,
+                    taskPhasePrompt = taskPhasePrompt
                 ) // история уже с userMsg
             }.onSuccess { result ->
                 val latencyMs = android.os.SystemClock.elapsedRealtime() - start
@@ -465,6 +470,31 @@ private fun escapeJson(value: String): String {
                 else -> append(ch)
             }
         }
+    }
+}
+
+private fun buildTaskPhasePrompt(taskState: TaskState?): String {
+    taskState ?: return ""
+    if (taskState.phase != TaskPhase.PLANNING) return ""
+
+    val collectStep = taskState.currentStep as? TaskStep.CollectRequirements
+    val missing = collectStep?.missingFields.orEmpty()
+    val missingText = if (missing.isEmpty()) {
+        "none"
+    } else {
+        missing.joinToString("; ")
+    }
+
+    return buildString {
+        append("[TASK_PHASE]\n")
+        append("phase: PLANNING\n")
+        append("missing_requirements: $missingText\n")
+        append("You are currently in planning phase.\n")
+        append("Keep collecting and clarifying requirements until data is clearly sufficient for a robust plan.\n")
+        append("Do NOT jump to implementation details, coding steps, or final execution suggestions yet.\n")
+        append("Ask targeted follow-up questions if goal/constraints are vague.\n")
+        append("When sufficient, provide a concise structured plan and confirm readiness to execute.\n")
+        append("[/TASK_PHASE]")
     }
 }
 

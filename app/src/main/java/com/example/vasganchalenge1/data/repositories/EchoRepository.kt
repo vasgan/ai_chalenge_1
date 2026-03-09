@@ -36,7 +36,8 @@ class EchoRepository  @Inject constructor(
         facts: String,
         longTermMemoryJson: String,
         invariants: List<String>,
-        workingContext: String
+        workingContext: String,
+        taskPhasePrompt: String
     ): DataResponse {
         val messages = mutableListOf<Message>()
         val systemParts = buildList {
@@ -56,6 +57,9 @@ class EchoRepository  @Inject constructor(
             }
             if (workingContext.isNotBlank()) {
                 add(workingContext)
+            }
+            if (taskPhasePrompt.isNotBlank()) {
+                add(taskPhasePrompt)
             }
             if (settings.contextMode == ContextMode.FACTS && facts.isNotBlank()) {
                 add("Conversation facts from older messages:\n$facts")

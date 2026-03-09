@@ -39,7 +39,7 @@ object TaskReducer {
                     text = event.text,
                     known = step.collectedFields
                 )
-                val missing = REQUIRED_FIELDS.filterNot { updatedFields.containsKey(it) }
+                val missing = missingRequiredFields(updatedFields)
                 if (missing.isNotEmpty()) {
                     state.copy(
                         currentStep = step.copy(
@@ -158,12 +158,16 @@ object TaskReducer {
         if ("goal" !in known && "goal" !in pairs) {
             pairs["goal"] = normalized.take(280)
         }
-        if ("constraints" !in known && "constraints" !in pairs) {
-            pairs["constraints"] = if (lines.size > 1) {
+        if ("constraints" !in known && "constraints" !in pairs && lines.size > 1) {
+            pairs["constraints"] = if (lines.size > 2) {
                 lines.drop(1).joinToString(" ").take(280)
             } else {
-                "No explicit constraints provided. Use the latest user request as the main constraint."
+                lines.last().take(280)
             }
+        }
+        if ("constraints" !in known && "constraints" !in pairs && normalized.length >= 60) {
+            // For natural one-shot user requests, use the request body as baseline constraints.
+            pairs["constraints"] = normalized.take(280)
         }
 
         return pairs
@@ -171,3 +175,17 @@ object TaskReducer {
 }
 
 private val REQUIRED_FIELDS = listOf("goal", "constraints")
+
+private fun missingRequiredFields(fields: Map<String, String>): List<String> {
+    val missing = mutableListOf<String>()
+    val goal = fields["goal"].orEmpty().trim()
+    val constraints = fields["constraints"].orEmpty().trim()
+
+    if (goal.length < 20) {
+        missing += "goal (минимум 20 символов и конкретный ожидаемый результат)"
+    }
+    if (constraints.length < 10) {
+        missing += "constraints (ограничения/условия/рамки)"
+    }
+    return missing
+}
