@@ -1,6 +1,9 @@
 package com.example.vasganchalenge1.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,8 +30,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -36,6 +42,7 @@ import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.taskfsm.ExpectedAction
+import com.example.vasganchalenge1.data.taskfsm.TaskPhase
 import com.example.vasganchalenge1.data.taskfsm.TaskState
 import com.example.vasganchalenge1.data.taskfsm.TaskStep
 import java.text.SimpleDateFormat
@@ -205,7 +212,10 @@ private fun TaskDebugPanel(
             if (taskState == null) {
                 Text("Task state not initialized", style = MaterialTheme.typography.bodySmall)
             } else {
-                Text("Phase: ${taskState.phase}", style = MaterialTheme.typography.bodyMedium)
+                TaskPhaseStepper(
+                    phase = taskState.phase,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Text("Step: ${describeStep(taskState.currentStep)}", style = MaterialTheme.typography.bodyMedium)
                 Text(
                     "ExpectedAction: ${describeExpectedAction(taskState.expectedAction)}",
@@ -225,6 +235,125 @@ private fun TaskDebugPanel(
             }
         }
     }
+}
+
+@Composable
+private fun TaskPhaseStepper(
+    phase: TaskPhase,
+    modifier: Modifier = Modifier
+) {
+    val phases = listOf(
+        TaskPhase.PLANNING,
+        TaskPhase.EXECUTION,
+        TaskPhase.VALIDATION,
+        TaskPhase.DONE
+    )
+    val currentIndex = phases.indexOf(phase).coerceAtLeast(0)
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        phases.forEachIndexed { index, item ->
+            val style = when {
+                index == currentIndex -> PhaseStepStyle.Current
+                index < currentIndex -> PhaseStepStyle.Reached
+                else -> PhaseStepStyle.Pending
+            }
+            PhaseStepChip(
+                text = phaseLabel(item),
+                style = style,
+                modifier = Modifier.weight(1f)
+            )
+            if (index < phases.lastIndex) {
+                Spacer(Modifier.width(6.dp))
+                PhaseConnector(
+                    active = index < currentIndex,
+                    modifier = Modifier.width(12.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhaseStepChip(
+    text: String,
+    style: PhaseStepStyle,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .border(
+                width = 1.dp,
+                color = style.borderColor,
+                shape = RoundedCornerShape(4.dp)
+            )
+            .background(
+                color = style.backgroundColor,
+                shape = RoundedCornerShape(4.dp)
+            )
+            .padding(horizontal = 4.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = style.textColor,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun PhaseConnector(
+    active: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val lineColor = if (active) {
+        Color(0xFF3B82F6)
+    } else {
+        Color(0xFFD1D5DB)
+    }
+    Box(
+        modifier = modifier
+            .height(1.dp)
+            .background(lineColor)
+    )
+}
+
+private fun phaseLabel(phase: TaskPhase): String {
+    return when (phase) {
+        TaskPhase.PLANNING -> "PLANNING"
+        TaskPhase.EXECUTION -> "EXECUTION"
+        TaskPhase.VALIDATION -> "VALIDATION"
+        TaskPhase.DONE -> "COMPLETED"
+    }
+}
+
+private enum class PhaseStepStyle(
+    val backgroundColor: Color,
+    val borderColor: Color,
+    val textColor: Color
+) {
+    Pending(
+        backgroundColor = Color.White,
+        borderColor = Color(0xFFD1D5DB),
+        textColor = Color(0xFF6B7280)
+    ),
+    Reached(
+        backgroundColor = Color.White,
+        borderColor = Color(0xFF3B82F6),
+        textColor = Color(0xFF2563EB)
+    ),
+    Current(
+        backgroundColor = Color(0xFF22C55E),
+        borderColor = Color(0xFF16A34A),
+        textColor = Color.White
+    )
 }
 
 @Composable
