@@ -20,6 +20,8 @@ import com.example.vasganchalenge1.ui.profiles.ProfileListScreen
 import com.example.vasganchalenge1.ui.profiles.ProfileListViewModel
 import com.example.vasganchalenge1.ui.profiles.ProfileSettingsScreen
 import com.example.vasganchalenge1.ui.profiles.ProfileSettingsViewModel
+import com.example.vasganchalenge1.ui.mcp.McpServerScreen
+import com.example.vasganchalenge1.ui.mcp.McpServerViewModel
 import com.example.vasganchalenge1.ui.settings.SettingsScreen
 import com.example.vasganchalenge1.ui.settings.SettingsViewModel
 import com.example.vasganchalenge1.ui.tasks.TaskListScreen
@@ -136,10 +138,25 @@ fun AppNavGraph() {
                 },
                 onOpenSettings = { navController.navigate(Routes.settings(state.chatId)) },
                 onOpenFacts = { navController.navigate(Routes.facts(state.chatId)) },
+                onOpenMcp = { navController.navigate(Routes.mcpServer(state.chatId)) },
                 onPauseTask = vm::pauseTask,
                 onResumeTask = vm::resumeTask,
                 onCancelTask = vm::cancelTask,
                 onResetTask = vm::resetTask
+            )
+        }
+
+        composable(
+            route = "${Routes.McpServer}/{chatId}",
+            arguments = listOf(navArgument("chatId") { type = NavType.StringType })
+        ) {
+            val vm = hiltViewModel<McpServerViewModel>()
+            val state = vm.state.collectAsState().value
+
+            McpServerScreen(
+                state = state,
+                onBack = { navController.popBackStack() },
+                onConnect = vm::connectAndLoadTools
             )
         }
 

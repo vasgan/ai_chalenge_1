@@ -18,18 +18,33 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FactCheck
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -49,11 +64,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainRoute(
     vm: ChatViewModel,
     onOpenSettings: () -> Unit,
     onOpenFacts: () -> Unit,
+    onOpenMcp: () -> Unit,
     onOpenBranches: () -> Unit,
     onCreateBranch: (Long) -> Unit
 ) {
@@ -65,6 +82,7 @@ fun MainRoute(
         onSendClick = vm::onSendClick,
         onOpenSettings = onOpenSettings,
         onOpenFacts = onOpenFacts,
+        onOpenMcp = onOpenMcp,
         onOpenBranches = onOpenBranches,
         onCreateBranch = onCreateBranch,
         onPauseTask = vm::pauseTask,
@@ -74,6 +92,7 @@ fun MainRoute(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     state: ChatUiState,
@@ -81,6 +100,7 @@ fun ChatScreen(
     onSendClick: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenFacts: () -> Unit,
+    onOpenMcp: () -> Unit,
     onOpenBranches: () -> Unit,
     onCreateBranch: (Long) -> Unit,
     onPauseTask: () -> Unit,
@@ -99,20 +119,35 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Агент", style = MaterialTheme.typography.titleLarge)
-                Row {
-                    TextButton(onClick = onOpenBranches) { Text("Ветки") }
-                    TextButton(onClick = onOpenFacts) { Text("Показать facts") }
-                    TextButton(onClick = onOpenSettings) { Text("Настройки") }
+            TopAppBar(
+                title = { Text("Агент") },
+                actions = {
+                    IconButton(onClick = onOpenBranches) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.CallSplit,
+                            contentDescription = "Ветки"
+                        )
+                    }
+                    IconButton(onClick = onOpenFacts) {
+                        Icon(
+                            imageVector = Icons.Filled.FactCheck,
+                            contentDescription = "Facts"
+                        )
+                    }
+                    IconButton(onClick = onOpenMcp) {
+                        Icon(
+                            imageVector = Icons.Filled.Dns,
+                            contentDescription = "MCP Server"
+                        )
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Настройки"
+                        )
+                    }
                 }
-            }
+            )
         },
         bottomBar = {
             Column(
@@ -200,6 +235,8 @@ private fun TaskDebugPanel(
     onCancelTask: () -> Unit,
     onResetTask: () -> Unit
 ) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -208,30 +245,46 @@ private fun TaskDebugPanel(
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Task Debug Panel", style = MaterialTheme.typography.titleSmall)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Task Debug Panel", style = MaterialTheme.typography.titleSmall)
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (expanded) "Свернуть" else "Развернуть"
+                    )
+                }
+            }
             if (taskState == null) {
                 Text("Task state not initialized", style = MaterialTheme.typography.bodySmall)
             } else {
-                TaskPhaseStepper(
-                    phase = taskState.phase,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Text("Step: ${describeStep(taskState.currentStep)}", style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    "ExpectedAction: ${describeExpectedAction(taskState.expectedAction)}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text("Status: ${taskState.status}", style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    "updatedAt: ${formatTimestamp(taskState.updatedAt)}",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                if (expanded) {
+                    TaskPhaseStepper(
+                        phase = taskState.phase,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Step: ${describeStep(taskState.currentStep)}", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "ExpectedAction: ${describeExpectedAction(taskState.expectedAction)}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text("Status: ${taskState.status}", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "updatedAt: ${formatTimestamp(taskState.updatedAt)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onPauseTask) { Text("Pause") }
-                TextButton(onClick = onResumeTask) { Text("Resume") }
-                TextButton(onClick = onCancelTask) { Text("Cancel") }
-                TextButton(onClick = onResetTask) { Text("Reset task") }
+            if (expanded) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onPauseTask) { Text("Pause") }
+                    TextButton(onClick = onResumeTask) { Text("Resume") }
+                    TextButton(onClick = onCancelTask) { Text("Cancel") }
+                    TextButton(onClick = onResetTask) { Text("Reset task") }
+                }
             }
         }
     }

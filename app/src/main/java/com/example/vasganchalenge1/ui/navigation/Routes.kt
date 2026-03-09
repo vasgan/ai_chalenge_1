@@ -9,6 +9,7 @@ object Routes {
     const val Settings = "settings"
     const val Facts = "facts"
     const val Branches = "branches"
+    const val McpServer = "mcp_server"
 
     fun profileSettings(profileId: String) = "$ProfileSettings/$profileId"
     fun tasks(profileId: String) = "$Tasks/$profileId"
@@ -17,4 +18,5 @@ object Routes {
     fun settings(chatId: String) = "$Settings/$chatId"
     fun facts(chatId: String) = "$Facts/$chatId"
     fun branches(chatId: String) = "$Branches/$chatId"
+    fun mcpServer(chatId: String) = "$McpServer/$chatId"
 }

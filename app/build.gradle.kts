@@ -55,6 +55,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation("androidx.compose.material:material-icons-extended")
 
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.exoplayer)
@@ -99,4 +100,9 @@ dependencies {
 
     // Moshi
     implementation("com.squareup.moshi:moshi-kotlin:1.15.2")
+
+    // MCP client
+    implementation("io.modelcontextprotocol:kotlin-sdk-client:0.8.4")
+    implementation("io.ktor:ktor-client-cio:3.1.1")
+    implementation("io.ktor:ktor-sse:3.1.1")
 }
