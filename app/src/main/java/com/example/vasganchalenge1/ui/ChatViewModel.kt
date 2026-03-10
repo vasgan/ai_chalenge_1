@@ -9,6 +9,7 @@ import com.example.vasganchalenge1.data.MemoryField
 import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
+import com.example.vasganchalenge1.data.repositories.McpConnectionStatus
 import com.example.vasganchalenge1.data.repositories.AppSettings
 import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
 import com.example.vasganchalenge1.data.repositories.ContextMode
@@ -23,6 +24,8 @@ import com.example.vasganchalenge1.data.taskfsm.TaskPhase
 import com.example.vasganchalenge1.data.taskfsm.TaskState
 import com.example.vasganchalenge1.data.taskfsm.TaskStep
 import com.example.vasganchalenge1.data.taskfsm.TaskStatus
+import com.example.vasganchalenge1.data.toolrouting.NaturalLanguageToolRouter
+import com.example.vasganchalenge1.data.toolrouting.ToolResolution
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -35,6 +38,7 @@ class ChatViewModel @Inject constructor(
     private val repo: EchoRepository,
     private val store: ChatStoreRepository,
     private val mcpRepository: McpRepository,
+    private val toolRouter: NaturalLanguageToolRouter,
     private val workingMemoryManager: WorkingMemoryManager,
     private val longTermMemoryManager: LongTermMemoryManager,
     private val taskFsmManager: TaskFsmManager,
@@ -131,9 +135,11 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        val toolCommand = text.toMcpToolCommand()
-        if (toolCommand != null) {
-            onToolCommand(text, toolCommand)
+        if (initialChatRoute(text) == InitialChatRoute.DIRECT_TOOL) {
+            val toolCommand = parseMcpToolCommand(text)
+            if (toolCommand != null) {
+                onToolCommand(text, toolCommand)
+            }
             return
         }
 
@@ -158,9 +164,55 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        val currentSettings = settings.value
+        val mcpState = mcpRepository.state.value
+        val canRouteTool = mcpState.connectionStatus == McpConnectionStatus.CONNECTED &&
+                mcpState.tools.isNotEmpty()
 
-        // добавляем user локально
+        if (!canRouteTool) {
+            onRegularChatMessage(text)
+            return
+        }
+
+        _state.value = _state.value.copy(
+            isLoading = true,
+            error = null
+        )
+
+        viewModelScope.launch {
+            val resolution = runCatching {
+                toolRouter.resolve(
+                    settings = settings.value,
+                    userMessage = text,
+                    availableTools = mcpState.tools
+                )
+            }.getOrDefault(ToolResolution.NoTool)
+
+            _state.value = _state.value.copy(isLoading = false)
+            when (routedChatAction(resolution)) {
+                RoutedChatAction.NORMAL_CHAT -> onRegularChatMessage(text)
+                RoutedChatAction.EXECUTE_TOOL -> {
+                    resolution as ToolResolution.ToolCall
+                    onToolCommand(
+                        rawText = text,
+                        command = McpToolCommand(
+                            name = resolution.toolName,
+                            argumentsJson = resolution.argumentsJson
+                        )
+                    )
+                }
+                RoutedChatAction.ASK_CLARIFICATION -> {
+                    resolution as ToolResolution.ClarificationNeeded
+                    onRouterClarification(
+                        userText = text,
+                        clarification = resolution.message
+                    )
+                }
+            }
+        }
+    }
+
+    private fun onRegularChatMessage(text: String) {
+        val currentSettings = settings.value
         val userMsg = UiChatMessage(role = Role.USER, text = text)
         val preMessagesRaw = _state.value.messages + userMsg
 
@@ -213,7 +265,6 @@ class ChatViewModel @Inject constructor(
                 )
             }
 
-            // сразу сохраним user-msg в чат (чтобы не потерялось при крэше)
             persistChat(
                 facts = preFacts,
                 factsMessageCount = preFactsMessageCount,
@@ -244,7 +295,7 @@ class ChatViewModel @Inject constructor(
                     invariants = _state.value.invariants,
                     workingContext = workingContext,
                     taskPhasePrompt = taskPhasePrompt
-                ) // история уже с userMsg
+                )
             }.onSuccess { result ->
                 val latencyMs = android.os.SystemClock.elapsedRealtime() - start
                 val tokensIn = result.tokensIn ?: 0
@@ -325,7 +376,6 @@ class ChatViewModel @Inject constructor(
                         settings = currentSettings
                     )
                 }.getOrElse {
-                    // Не теряем ответ ассистента, даже если facts-запрос временно упал.
                     preFacts to preFactsMessageCount
                 }
                 val updatedMetrics = listOf(metric) + _state.value.metrics
@@ -351,6 +401,27 @@ class ChatViewModel @Inject constructor(
                     error = e.message ?: "Ошибка запроса"
                 )
             }
+        }
+    }
+
+    private fun onRouterClarification(userText: String, clarification: String) {
+        val userMsg = UiChatMessage(role = Role.USER, text = userText)
+        val assistantMsg = UiChatMessage(role = Role.ASSISTANT, text = clarification)
+        val updatedMessages = _state.value.messages + userMsg + assistantMsg
+
+        _state.value = _state.value.copy(
+            input = "",
+            isLoading = false,
+            error = null,
+            messages = updatedMessages
+        )
+        viewModelScope.launch {
+            persistChat(
+                facts = _state.value.facts,
+                factsMessageCount = _state.value.factsMessageCount,
+                messages = updatedMessages,
+                metrics = _state.value.metrics
+            )
         }
     }
 
@@ -487,11 +558,6 @@ private enum class TaskCommand {
     PAUSE, RESUME, CANCEL
 }
 
-private data class McpToolCommand(
-    val name: String,
-    val argumentsJson: String
-)
-
 private fun String.toTaskCommand(): TaskCommand? {
     return when (trim().lowercase()) {
         "pause", "пауза" -> TaskCommand.PAUSE
@@ -499,19 +565,6 @@ private fun String.toTaskCommand(): TaskCommand? {
         "cancel", "отмена" -> TaskCommand.CANCEL
         else -> null
     }
-}
-
-private fun String.toMcpToolCommand(): McpToolCommand? {
-    val trimmed = trim()
-    if (!trimmed.startsWith("/tool ")) return null
-    val payload = trimmed.removePrefix("/tool ").trim()
-    if (payload.isBlank()) return null
-
-    val firstSpace = payload.indexOf(' ')
-    val toolName = if (firstSpace >= 0) payload.substring(0, firstSpace).trim() else payload
-    val argsJson = if (firstSpace >= 0) payload.substring(firstSpace + 1).trim().ifBlank { "{}" } else "{}"
-    if (toolName.isBlank()) return null
-    return McpToolCommand(name = toolName, argumentsJson = argsJson)
 }
 
 private fun buildLongTermMemoryJson(longTermMemory: LongTermMemory): String {

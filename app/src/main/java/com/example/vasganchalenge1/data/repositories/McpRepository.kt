@@ -20,8 +20,10 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -40,7 +42,10 @@ enum class McpConnectionStatus {
 }
 
 data class McpTool(
-    val name: String
+    val name: String,
+    val description: String = "",
+    val inputSchemaJson: String = "",
+    val requiredParams: List<String> = emptyList()
 )
 
 data class ToolResult(
@@ -190,7 +195,15 @@ class McpRepository @Inject constructor(
 
         client.connect(transport)
         val toolsResult = client.listTools(ListToolsRequest())
-        return toolsResult.tools.map { McpTool(name = it.name) }
+        return toolsResult.tools.map { tool ->
+            val schemaJson = tool.inputSchema?.toString().orEmpty()
+            McpTool(
+                name = tool.name,
+                description = tool.description ?: "",
+                inputSchemaJson = schemaJson,
+                requiredParams = extractRequiredParams(schemaJson)
+            )
+        }
     }
 
     private suspend fun callToolViaRemoteMcp(
@@ -228,9 +241,23 @@ class McpRepository @Inject constructor(
     }
 
     private fun listToolsViaInProcess(): List<McpTool> {
-        return localRegistry.listTools()
-            .mapNotNull { tool -> tool["name"]?.toString() }
-            .map { McpTool(name = it) }
+        return localRegistry.listTools().mapNotNull { tool ->
+            val name = tool["name"]?.toString().orEmpty().ifBlank { return@mapNotNull null }
+            val description = tool["description"]?.toString().orEmpty()
+            val schemaAny = tool["inputSchema"]
+            val schemaJson = schemaAny?.toJsonElement()?.toString().orEmpty()
+            val required = (schemaAny as? Map<*, *>)?.get("required")
+                .let { it as? List<*> }
+                .orEmpty()
+                .mapNotNull { it?.toString() }
+
+            McpTool(
+                name = name,
+                description = description,
+                inputSchemaJson = schemaJson,
+                requiredParams = required
+            )
+        }
     }
 
     private suspend fun callToolViaInProcess(
@@ -275,6 +302,16 @@ class McpRepository @Inject constructor(
         val host = runCatching { java.net.URI(serverUrl).host?.lowercase() }.getOrNull()
         return host == "127.0.0.1" || host == "localhost"
     }
+
+    private fun extractRequiredParams(schemaJson: String): List<String> {
+        if (schemaJson.isBlank()) return emptyList()
+        val schema = runCatching { json.parseToJsonElement(schemaJson) as? JsonObject }.getOrNull()
+            ?: return emptyList()
+        val required = schema["required"] as? JsonArray ?: return emptyList()
+        return required.mapNotNull { element ->
+            runCatching { element.jsonPrimitive.content }.getOrNull()
+        }
+    }
 }
 
 private fun Map<String, Any?>.toJsonObject(): JsonObject {
@@ -287,5 +324,27 @@ private fun Map<String, Any?>.toJsonObject(): JsonObject {
                 else -> put(key, JsonPrimitive(value.toString()))
             }
         }
+    }
+}
+
+private fun Any?.toJsonElement(): JsonElement {
+    return when (this) {
+        null -> JsonNull
+        is JsonElement -> this
+        is Map<*, *> -> {
+            buildJsonObject {
+                this@toJsonElement.entries.forEach { (key, value) ->
+                    if (key != null) put(key.toString(), value.toJsonElement())
+                }
+            }
+        }
+        is List<*> -> {
+            buildJsonArray {
+                this@toJsonElement.forEach { add(it.toJsonElement()) }
+            }
+        }
+        is Number -> JsonPrimitive(this)
+        is Boolean -> JsonPrimitive(this)
+        else -> JsonPrimitive(toString())
     }
 }

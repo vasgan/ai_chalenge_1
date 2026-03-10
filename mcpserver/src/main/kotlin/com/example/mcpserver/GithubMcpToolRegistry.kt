@@ -6,7 +6,7 @@ class GithubMcpToolRegistry(
     fun listTools(): List<Map<String, Any?>> = listOf(
         mapOf(
             "name" to "github_get_user",
-            "description" to "Get GitHub user profile by username",
+            "description" to "Получить профиль пользователя GitHub по username. Используй для запросов: кто такой пользователь, сколько у него репозиториев, сколько подписчиков. Возвращает поля профиля, включая public_repos.",
             "inputSchema" to mapOf(
                 "type" to "object",
                 "properties" to mapOf(
@@ -17,7 +17,7 @@ class GithubMcpToolRegistry(
         ),
         mapOf(
             "name" to "github_get_repo",
-            "description" to "Get GitHub repository details by owner and repo name",
+            "description" to "Получить информацию о репозитории GitHub по owner и repo. Используй для запросов о конкретном репозитории: звезды, форки, open issues, описание.",
             "inputSchema" to mapOf(
                 "type" to "object",
                 "properties" to mapOf(
@@ -29,7 +29,7 @@ class GithubMcpToolRegistry(
         ),
         mapOf(
             "name" to "github_list_repo_issues",
-            "description" to "List open issues for repository",
+            "description" to "Получить список открытых issues репозитория по owner и repo. Используй для запросов: покажи issues, какие открытые проблемы в репозитории.",
             "inputSchema" to mapOf(
                 "type" to "object",
                 "properties" to mapOf(
