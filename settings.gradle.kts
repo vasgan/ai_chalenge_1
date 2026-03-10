@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "VasganChalenge1"
 include(":app")
+include(":mcpserver")
  

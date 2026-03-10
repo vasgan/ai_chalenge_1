@@ -156,7 +156,11 @@ fun AppNavGraph() {
             McpServerScreen(
                 state = state,
                 onBack = { navController.popBackStack() },
-                onConnect = vm::connectAndLoadTools
+                onServerUrlChange = vm::setServerUrl,
+                onConnect = { vm.connectAndLoadTools() },
+                onUseLocalMcp = vm::useLocalServerAndConnect,
+                onCallGithubGetUser = vm::callGithubGetUser,
+                onCallGithubGetRepo = vm::callGithubGetRepo
             )
         }
 

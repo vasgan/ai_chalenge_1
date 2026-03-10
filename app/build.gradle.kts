@@ -44,6 +44,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":mcpserver"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
@@ -104,5 +105,6 @@ dependencies {
     // MCP client
     implementation("io.modelcontextprotocol:kotlin-sdk-client:0.8.4")
     implementation("io.ktor:ktor-client-cio:3.1.1")
+    implementation("io.ktor:ktor-client-okhttp:3.1.1")
     implementation("io.ktor:ktor-sse:3.1.1")
 }

@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -18,24 +17,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-
-private const val DEFAULT_MCP_SERVER_URL = "http://10.0.2.2:8080/mcp"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun McpServerScreen(
     state: McpServerUiState,
     onBack: () -> Unit,
-    onConnect: (String) -> Unit
+    onServerUrlChange: (String) -> Unit,
+    onConnect: () -> Unit,
+    onUseLocalMcp: () -> Unit,
+    onCallGithubGetUser: () -> Unit,
+    onCallGithubGetRepo: () -> Unit
 ) {
-    var serverUrl by remember { mutableStateOf(DEFAULT_MCP_SERVER_URL) }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -52,53 +47,69 @@ fun McpServerScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             OutlinedTextField(
-                value = serverUrl,
-                onValueChange = { serverUrl = it },
+                value = state.serverUrl,
+                onValueChange = onServerUrlChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Server URL") }
             )
 
-            Button(
-                onClick = { onConnect(serverUrl) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Button(onClick = onConnect, modifier = Modifier.fillMaxWidth()) {
                 Text("Connect MCP")
             }
+            Button(onClick = onUseLocalMcp, modifier = Modifier.fillMaxWidth()) {
+                Text("Использовать локальный MCP")
+            }
 
-            when (state) {
-                McpServerUiState.Idle -> {
-                    Text("Подключение не выполнено", style = MaterialTheme.typography.bodyMedium)
+            Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 1.dp) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Local server status: ${state.localServerStatus}")
+                    Text("Local server URL: ${state.localServerUrl.ifBlank { "—" }}")
+                    Text("MCP connection status: ${state.mcpConnectionStatus}")
                 }
+            }
 
-                McpServerUiState.Loading -> {
-                    CircularProgressIndicator()
-                }
+            state.error?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
 
-                is McpServerUiState.Error -> {
-                    Text(
-                        text = state.message,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-
-                is McpServerUiState.Success -> {
-                    Text("Доступные tools:", style = MaterialTheme.typography.titleMedium)
-                    if (state.tools.isEmpty()) {
-                        Text("Сервер вернул пустой список")
-                    } else {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(state.tools, key = { it }) { tool ->
-                                Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 1.dp) {
-                                    Text(
-                                        text = tool,
-                                        modifier = Modifier.padding(12.dp),
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                }
-                            }
+            Text("Available tools:", style = MaterialTheme.typography.titleMedium)
+            if (state.tools.isEmpty()) {
+                Text("No tools loaded")
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(state.tools, key = { it }) { tool ->
+                        Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 1.dp) {
+                            Text(
+                                text = tool,
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
                         }
                     }
+                }
+            }
+
+            Button(onClick = onCallGithubGetUser, modifier = Modifier.fillMaxWidth()) {
+                Text("Call github_get_user(Vasgan)")
+            }
+            Button(onClick = onCallGithubGetRepo, modifier = Modifier.fillMaxWidth()) {
+                Text("Call github_get_repo(Vasgan, ai_chalenge_1)")
+            }
+
+            if (state.toolCallResult.isNotBlank()) {
+                Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 1.dp) {
+                    Text(
+                        text = state.toolCallResult,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
             }
         }
