@@ -2,6 +2,8 @@ package com.example.vasganchalenge1.data.repositories
 
 import android.util.Log
 import com.example.mcpserver.GithubMcpToolRegistry
+import com.example.mcpserver.LocalMcpServerManager
+import com.example.mcpserver.LocalServerStatus
 import io.ktor.client.HttpClient
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
@@ -10,256 +12,268 @@ import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ListToolsRequest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.net.URI
+import kotlinx.serialization.json.longOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val MCP_TIMEOUT_MS = 12_000L
+
+enum class McpConnectionStatus {
+    DISCONNECTED,
+    CONNECTING,
+    CONNECTED,
+    ERROR
+}
+
+data class McpTool(
+    val name: String
+)
+
+data class ToolResult(
+    val text: String,
+    val structuredJson: String? = null,
+    val isError: Boolean = false
+)
+
+data class McpSharedState(
+    val serverUrl: String = "",
+    val connectionStatus: McpConnectionStatus = McpConnectionStatus.DISCONNECTED,
+    val tools: List<McpTool> = emptyList(),
+    val localServerStatus: LocalServerStatus = LocalServerStatus.STOPPED,
+    val localServerUrl: String = "",
+    val error: String? = null
+)
+
 @Singleton
 class McpRepository @Inject constructor(
-    private val httpClient: HttpClient
+    private val httpClient: HttpClient,
+    private val localServerManager: LocalMcpServerManager
 ) {
     private val tag = "McpRepository"
-    private val rawJson = Json { ignoreUnknownKeys = true }
-    private val rawHttpClient = OkHttpClient()
+    private val json = Json { ignoreUnknownKeys = true }
     private val localRegistry = GithubMcpToolRegistry()
 
-    suspend fun listTools(serverUrl: String): Result<List<String>> = runCatching {
-        if (isLocalServerUrl(serverUrl)) {
-            withTimeout(MCP_TIMEOUT_MS) { listToolsViaInProcess() }
-        } else {
-            withTimeout(MCP_TIMEOUT_MS) {
-                val client = Client(
-                    clientInfo = Implementation(
-                        name = "android-assistant",
-                        version = "1.0.0"
-                    )
-                )
-                val transport = StreamableHttpClientTransport(
-                    client = httpClient,
-                    url = serverUrl
-                )
+    private val _state = MutableStateFlow(McpSharedState())
+    val state: StateFlow<McpSharedState> = _state.asStateFlow()
 
-                client.connect(transport)
-                val toolsResult = client.listTools(ListToolsRequest())
-                toolsResult.tools.map { it.name }
+    suspend fun connect(serverUrl: String): Result<List<McpTool>> = runCatching {
+        val normalized = serverUrl.trim()
+        require(normalized.isNotBlank()) { "Server URL is empty" }
+
+        _state.value = _state.value.copy(
+            serverUrl = normalized,
+            connectionStatus = McpConnectionStatus.CONNECTING,
+            error = null
+        )
+
+        val tools = withTimeout(MCP_TIMEOUT_MS) {
+            if (isLocalServerUrl(normalized)) {
+                listToolsViaInProcess()
+            } else {
+                listToolsViaRemoteMcp(normalized)
             }
         }
-    }.recoverCatching { throwable ->
-        throw toUserFriendlyThrowable("listTools", serverUrl, throwable)
-    }.onFailure {
-        Log.e(tag, "listTools failed. serverUrl=$serverUrl", it)
+
+        _state.value = _state.value.copy(
+            serverUrl = normalized,
+            connectionStatus = McpConnectionStatus.CONNECTED,
+            tools = tools,
+            error = null
+        )
+
+        tools
+    }.onFailure { throwable ->
+        Log.e(tag, "connect failed. url=$serverUrl", throwable)
+        _state.value = _state.value.copy(
+            connectionStatus = McpConnectionStatus.ERROR,
+            error = throwable.message ?: "MCP connection error"
+        )
     }
 
-    suspend fun callTool(
+    suspend fun connectLocal(): Result<List<McpTool>> = runCatching {
+        _state.value = _state.value.copy(
+            localServerStatus = LocalServerStatus.STARTING,
+            connectionStatus = McpConnectionStatus.CONNECTING,
+            error = null
+        )
+
+        val localUrl = withContext(Dispatchers.IO) { localServerManager.start() }
+        _state.value = _state.value.copy(
+            localServerStatus = LocalServerStatus.RUNNING,
+            localServerUrl = localUrl,
+            serverUrl = localUrl
+        )
+
+        connect(localUrl).getOrThrow()
+    }.onFailure { throwable ->
+        Log.e(tag, "connectLocal failed", throwable)
+        _state.value = _state.value.copy(
+            localServerStatus = LocalServerStatus.ERROR,
+            connectionStatus = McpConnectionStatus.ERROR,
+            error = throwable.message ?: "Failed to start local MCP server"
+        )
+    }
+
+    fun disconnect() {
+        runCatching { localServerManager.stop() }
+        _state.value = _state.value.copy(
+            connectionStatus = McpConnectionStatus.DISCONNECTED,
+            localServerStatus = LocalServerStatus.STOPPED,
+            tools = emptyList(),
+            error = null
+        )
+    }
+
+    suspend fun listTools(): Result<List<McpTool>> = runCatching {
+        val current = _state.value
+        require(current.connectionStatus == McpConnectionStatus.CONNECTED) { "MCP не подключён" }
+
+        val tools = withTimeout(MCP_TIMEOUT_MS) {
+            if (isLocalServerUrl(current.serverUrl)) {
+                listToolsViaInProcess()
+            } else {
+                listToolsViaRemoteMcp(current.serverUrl)
+            }
+        }
+
+        _state.value = _state.value.copy(tools = tools, error = null)
+        tools
+    }.onFailure { throwable ->
+        Log.e(tag, "listTools failed", throwable)
+        _state.value = _state.value.copy(error = throwable.message ?: "listTools failed")
+    }
+
+    suspend fun callTool(name: String, argumentsJson: String): Result<ToolResult> = runCatching {
+        val current = _state.value
+        require(current.connectionStatus == McpConnectionStatus.CONNECTED) { "MCP не подключён" }
+        require(current.tools.isNotEmpty()) { "Нет доступных MCP tools" }
+
+        val args = parseArgumentsJson(argumentsJson)
+
+        withTimeout(MCP_TIMEOUT_MS) {
+            if (isLocalServerUrl(current.serverUrl)) {
+                callToolViaInProcess(name, args)
+            } else {
+                callToolViaRemoteMcp(current.serverUrl, name, args)
+            }
+        }
+    }.onFailure { throwable ->
+        Log.e(tag, "callTool failed. name=$name", throwable)
+        _state.value = _state.value.copy(error = throwable.message ?: "Tool call failed")
+    }
+
+    private suspend fun listToolsViaRemoteMcp(serverUrl: String): List<McpTool> {
+        val client = Client(
+            clientInfo = Implementation(
+                name = "android-assistant",
+                version = "1.0.0"
+            )
+        )
+        val transport = StreamableHttpClientTransport(
+            client = httpClient,
+            url = serverUrl
+        )
+
+        client.connect(transport)
+        val toolsResult = client.listTools(ListToolsRequest())
+        return toolsResult.tools.map { McpTool(name = it.name) }
+    }
+
+    private suspend fun callToolViaRemoteMcp(
         serverUrl: String,
         toolName: String,
         arguments: Map<String, Any?>
-    ): Result<String> = runCatching {
-        if (isLocalServerUrl(serverUrl)) {
-            withTimeout(MCP_TIMEOUT_MS) { callToolViaInProcess(toolName, arguments) }
-        } else {
-            withTimeout(MCP_TIMEOUT_MS) {
-                val client = Client(
-                    clientInfo = Implementation(
-                        name = "android-assistant",
-                        version = "1.0.0"
-                    )
-                )
-                val transport = StreamableHttpClientTransport(
-                    client = httpClient,
-                    url = serverUrl
-                )
-                client.connect(transport)
-                val result = client.callTool(
-                    CallToolRequest(
-                        params = CallToolRequestParams(
-                            name = toolName,
-                            arguments = arguments.toJsonObject()
-                        )
-                    )
-                )
-                result.content.joinToString("\n") { it.toString() }
-            }
-        }
-    }.recoverCatching { throwable ->
-        throw toUserFriendlyThrowable("callTool:$toolName", serverUrl, throwable)
-    }.onFailure {
-        Log.e(tag, "callTool failed. serverUrl=$serverUrl, tool=$toolName, args=$arguments", it)
-    }
-
-    private suspend fun listToolsViaRawJsonRpc(serverUrl: String): List<String> {
-        initializeSession(serverUrl)
-        val response = postJsonRpc(
-            serverUrl = serverUrl,
-            payload = buildJsonObject {
-                put("jsonrpc", JsonPrimitive("2.0"))
-                put("id", JsonPrimitive("tools-list-1"))
-                put("method", JsonPrimitive("tools/list"))
-                put("params", buildJsonObject {})
-            }
+    ): ToolResult {
+        val client = Client(
+            clientInfo = Implementation(
+                name = "android-assistant",
+                version = "1.0.0"
+            )
+        )
+        val transport = StreamableHttpClientTransport(
+            client = httpClient,
+            url = serverUrl
         )
 
-        val root = rawJson.parseToJsonElement(response).jsonObject
-        val errorMessage = root["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
-        if (!errorMessage.isNullOrBlank()) {
-            error("MCP tools/list error: $errorMessage")
-        }
-
-        val tools = root["result"]
-            ?.jsonObject
-            ?.get("tools")
-            ?.jsonArray
-            ?: JsonArray(emptyList())
-
-        return tools.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
-    }
-
-    private suspend fun callToolViaRawJsonRpc(
-        serverUrl: String,
-        toolName: String,
-        arguments: Map<String, Any?>
-    ): String {
-        initializeSession(serverUrl)
-        val response = postJsonRpc(
-            serverUrl = serverUrl,
-            payload = buildJsonObject {
-                put("jsonrpc", JsonPrimitive("2.0"))
-                put("id", JsonPrimitive("tool-call-1"))
-                put("method", JsonPrimitive("tools/call"))
-                put(
-                    "params",
-                    buildJsonObject {
-                        put("name", JsonPrimitive(toolName))
-                        put("arguments", arguments.toJsonObject())
-                    }
+        client.connect(transport)
+        val result = client.callTool(
+            CallToolRequest(
+                params = CallToolRequestParams(
+                    name = toolName,
+                    arguments = arguments.toJsonObject()
                 )
-            }
+            )
         )
 
-        val root = rawJson.parseToJsonElement(response).jsonObject
-        val errorMessage = root["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
-        if (!errorMessage.isNullOrBlank()) {
-            error("MCP tools/call error: $errorMessage")
-        }
-
-        val resultObj = root["result"]?.jsonObject ?: return ""
-        val content = resultObj["content"]?.jsonArray ?: JsonArray(emptyList())
-        val textParts = content.mapNotNull { block ->
-            block.jsonObject["text"]?.jsonPrimitive?.contentOrNull
-        }
-        val summary = textParts.joinToString("\n").ifBlank { resultObj.toString() }
-        return summary
+        val text = result.content.joinToString("\n") { it.toString() }
+        return ToolResult(
+            text = text,
+            structuredJson = result.structuredContent?.toString(),
+            isError = result.isError == true
+        )
     }
 
-    private fun listToolsViaInProcess(): List<String> {
-        return localRegistry.listTools().mapNotNull { it["name"]?.toString() }
+    private fun listToolsViaInProcess(): List<McpTool> {
+        return localRegistry.listTools()
+            .mapNotNull { tool -> tool["name"]?.toString() }
+            .map { McpTool(name = it) }
     }
 
     private suspend fun callToolViaInProcess(
         toolName: String,
         arguments: Map<String, Any?>
-    ): String {
+    ): ToolResult {
         val result = localRegistry.callTool(toolName, arguments)
         val content = result["content"] as? List<*> ?: emptyList<Any?>()
         val text = content.mapNotNull { block ->
             (block as? Map<*, *>)?.get("text")?.toString()
         }.joinToString("\n")
-        return text.ifBlank { result.toString() }
-    }
 
-    private suspend fun initializeSession(serverUrl: String) {
-        postJsonRpc(
-            serverUrl = serverUrl,
-            payload = buildJsonObject {
-                put("jsonrpc", JsonPrimitive("2.0"))
-                put("id", JsonPrimitive("init-1"))
-                put("method", JsonPrimitive("initialize"))
-                put(
-                    "params",
-                    buildJsonObject {
-                        put("protocolVersion", JsonPrimitive("2025-03-26"))
-                        put("capabilities", buildJsonObject {})
-                        put(
-                            "clientInfo",
-                            buildJsonObject {
-                                put("name", JsonPrimitive("android-assistant"))
-                                put("version", JsonPrimitive("1.0.0"))
-                            }
-                        )
-                    }
-                )
-            }
-        )
-
-        postJsonRpc(
-            serverUrl = serverUrl,
-            payload = buildJsonObject {
-                put("jsonrpc", JsonPrimitive("2.0"))
-                put("method", JsonPrimitive("notifications/initialized"))
-                put("params", buildJsonObject {})
-            }
+        return ToolResult(
+            text = text.ifBlank { result.toString() },
+            structuredJson = (result["structuredContent"] as? Map<*, *>)?.toString(),
+            isError = result["isError"] as? Boolean ?: false
         )
     }
 
-    private suspend fun postJsonRpc(serverUrl: String, payload: JsonObject): String = withContext(Dispatchers.IO) {
-        val body = rawJson.encodeToString(JsonObject.serializer(), payload)
-            .toRequestBody("application/json".toMediaType())
+    private fun parseArgumentsJson(argumentsJson: String): Map<String, Any?> {
+        val trimmed = argumentsJson.trim().ifBlank { "{}" }
+        val root = json.parseToJsonElement(trimmed)
+        require(root is JsonObject) { "argumentsJson должен быть JSON объектом" }
+        return root.mapValues { (_, value) -> value.toAnyValue() }
+    }
 
-        val request = Request.Builder()
-            .url(serverUrl)
-            .post(body)
-            .build()
-
-        rawHttpClient.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                if (response.code == 405 && isLocalServerUrl(serverUrl)) {
-                    error(
-                        "HTTP 405 from local MCP endpoint ($serverUrl). " +
-                            "Likely connected to a different local service on this port."
-                    )
-                }
-                error("HTTP ${response.code}: $text")
+    private fun JsonElement.toAnyValue(): Any? {
+        return when (this) {
+            is JsonObject -> this.toString()
+            is JsonArray -> this.toString()
+            is JsonPrimitive -> {
+                booleanOrNull
+                    ?: longOrNull
+                    ?: doubleOrNull
+                    ?: content
             }
-            text
+            else -> toString()
         }
     }
 
     private fun isLocalServerUrl(serverUrl: String): Boolean {
-        val host = runCatching { URI(serverUrl).host?.lowercase() }.getOrNull()
+        val host = runCatching { java.net.URI(serverUrl).host?.lowercase() }.getOrNull()
         return host == "127.0.0.1" || host == "localhost"
-    }
-
-    private fun toUserFriendlyThrowable(operation: String, serverUrl: String, throwable: Throwable): Throwable {
-        if (throwable is TimeoutCancellationException) {
-            return IllegalStateException(
-                "MCP timeout while $operation. url=$serverUrl. " +
-                    "Server did not respond in ${MCP_TIMEOUT_MS / 1000}s.",
-                throwable
-            )
-        }
-        return throwable
-    }
-
-    private companion object {
-        const val MCP_TIMEOUT_MS = 12_000L
     }
 }
 

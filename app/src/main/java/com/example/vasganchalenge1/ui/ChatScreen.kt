@@ -196,6 +196,11 @@ fun ChatScreen(
         ) {
             // метрики (последняя строка)
             MetricsHeader(metrics = state.metrics)
+            McpDebugHeader(
+                status = state.mcpConnectionStatus,
+                toolsCount = state.mcpToolsCount,
+                serverUrl = state.mcpServerUrl
+            )
             TaskDebugPanel(
                 taskState = state.taskStateDebug,
                 onPauseTask = onPauseTask,
@@ -225,6 +230,20 @@ fun ChatScreen(
             }
         }
     }
+}
+
+@Composable
+private fun McpDebugHeader(
+    status: String,
+    toolsCount: Int,
+    serverUrl: String
+) {
+    Text(
+        text = "MCP: $status • Tools: $toolsCount" +
+                if (serverUrl.isNotBlank()) " • URL: $serverUrl" else "",
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        style = MaterialTheme.typography.bodySmall
+    )
 }
 
 @Composable
@@ -460,7 +479,11 @@ private fun ChatBubble(
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(
-                    text = if (isUser) "You" else "Assistant",
+                    text = when (msg.role) {
+                        Role.USER -> "You"
+                        Role.ASSISTANT -> "Assistant"
+                        Role.TOOL -> "Tool"
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     color = textColor
                 )

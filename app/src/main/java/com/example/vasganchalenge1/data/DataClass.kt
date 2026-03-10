@@ -149,4 +149,4 @@ data class UiChatMessage(
     val violatesInvariants: Boolean = false
 )
 
-enum class Role { USER, ASSISTANT }
+enum class Role { USER, ASSISTANT, TOOL }

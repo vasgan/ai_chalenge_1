@@ -14,6 +14,7 @@ import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
 import com.example.vasganchalenge1.data.repositories.ContextMode
 import com.example.vasganchalenge1.data.repositories.EchoRepository
 import com.example.vasganchalenge1.data.repositories.LongTermMemoryManager
+import com.example.vasganchalenge1.data.repositories.McpRepository
 import com.example.vasganchalenge1.data.repositories.ValidationResult
 import com.example.vasganchalenge1.data.repositories.WorkingMemoryManager
 import com.example.vasganchalenge1.data.taskfsm.TaskEvent
@@ -33,6 +34,7 @@ private const val FACTS_CHUNK_SIZE = 20
 class ChatViewModel @Inject constructor(
     private val repo: EchoRepository,
     private val store: ChatStoreRepository,
+    private val mcpRepository: McpRepository,
     private val workingMemoryManager: WorkingMemoryManager,
     private val longTermMemoryManager: LongTermMemoryManager,
     private val taskFsmManager: TaskFsmManager,
@@ -81,6 +83,15 @@ class ChatViewModel @Inject constructor(
                 _settings.value = chat.settings
             }
         }
+        viewModelScope.launch {
+            mcpRepository.state.collect { mcp ->
+                _state.value = _state.value.copy(
+                    mcpConnectionStatus = mcp.connectionStatus.name,
+                    mcpServerUrl = mcp.serverUrl,
+                    mcpToolsCount = mcp.tools.size
+                )
+            }
+        }
     }
 
     fun onInputChange(v: String) {
@@ -117,6 +128,12 @@ class ChatViewModel @Inject constructor(
         val text = _state.value.input.trim()
         if (text.isEmpty()) {
             _state.value = _state.value.copy(error = "Введите текст")
+            return
+        }
+
+        val toolCommand = text.toMcpToolCommand()
+        if (toolCommand != null) {
+            onToolCommand(text, toolCommand)
             return
         }
 
@@ -337,6 +354,57 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private fun onToolCommand(rawText: String, command: McpToolCommand) {
+        val userMsg = UiChatMessage(role = Role.USER, text = rawText)
+        val preMessagesRaw = _state.value.messages + userMsg
+        _state.value = _state.value.copy(
+            input = "",
+            isLoading = true,
+            error = null,
+            messages = preMessagesRaw
+        )
+
+        viewModelScope.launch {
+            mcpRepository.callTool(command.name, command.argumentsJson)
+                .onSuccess { result ->
+                    val toolMsg = UiChatMessage(
+                        role = Role.TOOL,
+                        text = result.text.ifBlank { "Tool ${command.name} returned empty result" }
+                    )
+                    val updatedMessages = preMessagesRaw + toolMsg
+                    _state.value = _state.value.copy(
+                        isLoading = false,
+                        messages = updatedMessages
+                    )
+                    persistChat(
+                        facts = _state.value.facts,
+                        factsMessageCount = _state.value.factsMessageCount,
+                        messages = updatedMessages,
+                        metrics = _state.value.metrics
+                    )
+                }
+                .onFailure { throwable ->
+                    val errorText = throwable.message ?: "Tool call failed"
+                    val toolMsg = UiChatMessage(
+                        role = Role.TOOL,
+                        text = "Tool ${command.name} error: $errorText"
+                    )
+                    val updatedMessages = preMessagesRaw + toolMsg
+                    _state.value = _state.value.copy(
+                        isLoading = false,
+                        error = errorText,
+                        messages = updatedMessages
+                    )
+                    persistChat(
+                        facts = _state.value.facts,
+                        factsMessageCount = _state.value.factsMessageCount,
+                        messages = updatedMessages,
+                        metrics = _state.value.metrics
+                    )
+                }
+        }
+    }
+
     private fun dispatchTaskEvent(event: TaskEvent) {
         viewModelScope.launch {
             val taskState = taskFsmManager.dispatch(_state.value.taskId, event)
@@ -419,6 +487,11 @@ private enum class TaskCommand {
     PAUSE, RESUME, CANCEL
 }
 
+private data class McpToolCommand(
+    val name: String,
+    val argumentsJson: String
+)
+
 private fun String.toTaskCommand(): TaskCommand? {
     return when (trim().lowercase()) {
         "pause", "пауза" -> TaskCommand.PAUSE
@@ -426,6 +499,19 @@ private fun String.toTaskCommand(): TaskCommand? {
         "cancel", "отмена" -> TaskCommand.CANCEL
         else -> null
     }
+}
+
+private fun String.toMcpToolCommand(): McpToolCommand? {
+    val trimmed = trim()
+    if (!trimmed.startsWith("/tool ")) return null
+    val payload = trimmed.removePrefix("/tool ").trim()
+    if (payload.isBlank()) return null
+
+    val firstSpace = payload.indexOf(' ')
+    val toolName = if (firstSpace >= 0) payload.substring(0, firstSpace).trim() else payload
+    val argsJson = if (firstSpace >= 0) payload.substring(firstSpace + 1).trim().ifBlank { "{}" } else "{}"
+    if (toolName.isBlank()) return null
+    return McpToolCommand(name = toolName, argumentsJson = argsJson)
 }
 
 private fun buildLongTermMemoryJson(longTermMemory: LongTermMemory): String {
