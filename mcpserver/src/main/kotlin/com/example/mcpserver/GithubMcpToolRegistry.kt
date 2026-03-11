@@ -1,7 +1,10 @@
 package com.example.mcpserver
 
+import kotlin.math.roundToInt
+
 class GithubMcpToolRegistry(
-    private val githubApiClient: GithubApiClient = GithubApiClient()
+    private val githubApiClient: GithubApiClient = GithubApiClient(),
+    private val githubTrackingTools: GithubTrackingTools = NoopGithubTrackingTools
 ) {
     fun listTools(): List<Map<String, Any?>> = listOf(
         mapOf(
@@ -37,6 +40,44 @@ class GithubMcpToolRegistry(
                     "repo" to mapOf("type" to "string")
                 ),
                 "required" to listOf("owner", "repo")
+            )
+        ),
+        mapOf(
+            "name" to "github_schedule_user_stars_tracking",
+            "description" to "Запустить единственный активный периодический сбор метрики пользователя GitHub (по умолчанию total_stars) через self-rescheduling OneTimeWorkRequest. Второй активный сбор запускать нельзя.",
+            "inputSchema" to mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "username" to mapOf("type" to "string"),
+                    "intervalSeconds" to mapOf("type" to "integer"),
+                    "intervalMinutes" to mapOf("type" to "number"),
+                    "durationHours" to mapOf("type" to "integer"),
+                    "metric" to mapOf("type" to "string"),
+                    "title" to mapOf("type" to "string")
+                ),
+                "required" to listOf("username")
+            )
+        ),
+        mapOf(
+            "name" to "github_get_user_stars_stats",
+            "description" to "Получить накопленную статистику единственного запущенного (или последнего) сбора.",
+            "inputSchema" to mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "username" to mapOf("type" to "string"),
+                    "period" to mapOf("type" to "string"),
+                    "includeTimestamps" to mapOf("type" to "boolean")
+                ),
+                "required" to emptyList<String>()
+            )
+        ),
+        mapOf(
+            "name" to "github_stop_user_stars_tracking",
+            "description" to "Остановить единственный активный периодический сбор статистики.",
+            "inputSchema" to mapOf(
+                "type" to "object",
+                "properties" to emptyMap<String, Any?>(),
+                "required" to emptyList<String>()
             )
         )
     )
@@ -107,6 +148,64 @@ class GithubMcpToolRegistry(
                 }
             }
 
+            "github_schedule_user_stars_tracking" -> {
+                val username = arguments["username"]?.toString().orEmpty()
+                val explicitIntervalSeconds = parseNumber(arguments["intervalSeconds"])?.toInt()
+                val intervalMinutesRaw = parseNumber(arguments["intervalMinutes"])
+                val intervalSecondsFromMinutes = intervalMinutesRaw
+                    ?.takeIf { it > 0.0 }
+                    ?.let { (it * 60.0).roundToInt() }
+                    ?.takeIf { it > 0 }
+                val intervalMinutesInt = intervalMinutesRaw
+                    ?.takeIf { it >= 1.0 && it % 1.0 == 0.0 }
+                    ?.toInt()
+                val durationHours = (arguments["durationHours"] as? Number)?.toInt()
+                val metric = arguments["metric"]?.toString()
+                val title = arguments["title"]?.toString()
+
+                val result = githubTrackingTools.scheduleUserMetricTracking(
+                    username = username,
+                    intervalSeconds = explicitIntervalSeconds ?: intervalSecondsFromMinutes,
+                    intervalMinutes = intervalMinutesInt,
+                    durationHours = durationHours,
+                    metric = metric,
+                    title = title
+                )
+                if (result.isError) {
+                    errorResult(result.text)
+                } else {
+                    successResult(result.text, result.structured)
+                }
+            }
+
+            "github_get_user_stars_stats" -> {
+                val username = arguments["username"]?.toString()
+                val period = arguments["period"]?.toString()
+                val includeTimestamps = arguments["includeTimestamps"] as? Boolean
+                    ?: (arguments["includeTimestamps"] as? String)?.toBooleanStrictOrNull()
+
+                val result = githubTrackingTools.getUserMetricStats(
+                    trackingId = null,
+                    username = username,
+                    period = period,
+                    includeTimestamps = includeTimestamps
+                )
+                if (result.isError) {
+                    errorResult(result.text)
+                } else {
+                    successResult(result.text, result.structured)
+                }
+            }
+
+            "github_stop_user_stars_tracking" -> {
+                val result = githubTrackingTools.stopUserMetricTracking(null)
+                if (result.isError) {
+                    errorResult(result.text)
+                } else {
+                    successResult(result.text, result.structured)
+                }
+            }
+
             else -> errorResult("Unknown tool: $name")
         }
     }
@@ -125,5 +224,13 @@ class GithubMcpToolRegistry(
             "structuredContent" to mapOf("error" to message),
             "isError" to true
         )
+    }
+
+    private fun parseNumber(value: Any?): Double? {
+        return when (value) {
+            is Number -> value.toDouble()
+            is String -> value.toDoubleOrNull()
+            else -> null
+        }
     }
 }

@@ -27,26 +27,35 @@ class GithubApiClient(
     )
 
     suspend fun getUser(username: String): Result<Map<String, Any?>> = runCatching {
-        val json = httpClient.get("https://api.github.com/users/$username") {
-            header(HttpHeaders.Accept, "application/vnd.github+json")
-            header(HttpHeaders.UserAgent, "android-local-mcp")
-        }.body<String>()
+        val json = httpClient.get("https://api.github.com/users/$username", ::applyDefaultHeaders)
+            .body<String>()
         mapAdapter.fromJson(json) ?: error("Failed to parse GitHub user response")
     }
 
     suspend fun getRepo(owner: String, repo: String): Result<Map<String, Any?>> = runCatching {
-        val json = httpClient.get("https://api.github.com/repos/$owner/$repo") {
-            header(HttpHeaders.Accept, "application/vnd.github+json")
-            header(HttpHeaders.UserAgent, "android-local-mcp")
-        }.body<String>()
+        val json = httpClient.get("https://api.github.com/repos/$owner/$repo", ::applyDefaultHeaders)
+            .body<String>()
         mapAdapter.fromJson(json) ?: error("Failed to parse GitHub repo response")
     }
 
     suspend fun listRepoIssues(owner: String, repo: String): Result<List<Map<String, Any?>>> = runCatching {
-        val json = httpClient.get("https://api.github.com/repos/$owner/$repo/issues?state=open&per_page=10") {
-            header(HttpHeaders.Accept, "application/vnd.github+json")
-            header(HttpHeaders.UserAgent, "android-local-mcp")
-        }.body<String>()
+        val json = httpClient.get(
+            "https://api.github.com/repos/$owner/$repo/issues?state=open&per_page=10",
+            ::applyDefaultHeaders
+        ).body<String>()
         listAdapter.fromJson(json) ?: error("Failed to parse GitHub issues response")
+    }
+
+    suspend fun listUserRepos(username: String): Result<List<Map<String, Any?>>> = runCatching {
+        val json = httpClient.get(
+            "https://api.github.com/users/$username/repos?per_page=100&type=owner&sort=updated",
+            ::applyDefaultHeaders
+        ).body<String>()
+        listAdapter.fromJson(json) ?: error("Failed to parse GitHub user repos response")
+    }
+
+    private fun applyDefaultHeaders(builder: io.ktor.client.request.HttpRequestBuilder) {
+        builder.header(HttpHeaders.Accept, "application/vnd.github+json")
+        builder.header(HttpHeaders.UserAgent, "android-local-mcp")
     }
 }

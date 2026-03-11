@@ -2,6 +2,7 @@ package com.example.vasganchalenge1.data.repositories
 
 import android.util.Log
 import com.example.mcpserver.GithubMcpToolRegistry
+import com.example.mcpserver.GithubTrackingTools
 import com.example.mcpserver.LocalMcpServerManager
 import com.example.mcpserver.LocalServerStatus
 import io.ktor.client.HttpClient
@@ -66,11 +67,12 @@ data class McpSharedState(
 @Singleton
 class McpRepository @Inject constructor(
     private val httpClient: HttpClient,
-    private val localServerManager: LocalMcpServerManager
+    private val localServerManager: LocalMcpServerManager,
+    githubTrackingTools: GithubTrackingTools
 ) {
     private val tag = "McpRepository"
     private val json = Json { ignoreUnknownKeys = true }
-    private val localRegistry = GithubMcpToolRegistry()
+    private val localRegistry = GithubMcpToolRegistry(githubTrackingTools = githubTrackingTools)
 
     private val _state = MutableStateFlow(McpSharedState())
     val state: StateFlow<McpSharedState> = _state.asStateFlow()
@@ -162,23 +164,53 @@ class McpRepository @Inject constructor(
         _state.value = _state.value.copy(error = throwable.message ?: "listTools failed")
     }
 
-    suspend fun callTool(name: String, argumentsJson: String): Result<ToolResult> = runCatching {
+    suspend fun callTool(name: String, argumentsJson: String): Result<ToolResult> {
         val current = _state.value
-        require(current.connectionStatus == McpConnectionStatus.CONNECTED) { "MCP не подключён" }
-        require(current.tools.isNotEmpty()) { "Нет доступных MCP tools" }
-
-        val args = parseArgumentsJson(argumentsJson)
-
-        withTimeout(MCP_TIMEOUT_MS) {
-            if (isLocalServerUrl(current.serverUrl)) {
-                callToolViaInProcess(name, args)
-            } else {
-                callToolViaRemoteMcp(current.serverUrl, name, args)
-            }
+        if (current.connectionStatus != McpConnectionStatus.CONNECTED) {
+            val message = "MCP не подключён"
+            _state.value = _state.value.copy(error = message)
+            return Result.success(
+                ToolResult(
+                    text = message,
+                    structuredJson = """{"error":"$message"}""",
+                    isError = true
+                )
+            )
         }
-    }.onFailure { throwable ->
-        Log.e(tag, "callTool failed. name=$name", throwable)
-        _state.value = _state.value.copy(error = throwable.message ?: "Tool call failed")
+        if (current.tools.isEmpty()) {
+            val message = "Нет доступных MCP tools"
+            _state.value = _state.value.copy(error = message)
+            return Result.success(
+                ToolResult(
+                    text = message,
+                    structuredJson = """{"error":"$message"}""",
+                    isError = true
+                )
+            )
+        }
+
+        return try {
+            val args = parseArgumentsJson(argumentsJson)
+            val toolResult = withTimeout(MCP_TIMEOUT_MS) {
+                if (isLocalServerUrl(current.serverUrl)) {
+                    callToolViaInProcess(name, args)
+                } else {
+                    callToolViaRemoteMcp(current.serverUrl, name, args)
+                }
+            }
+            Result.success(toolResult)
+        } catch (throwable: Throwable) {
+            Log.e(tag, "callTool failed. name=$name", throwable)
+            val message = throwable.message ?: "Tool call failed"
+            _state.value = _state.value.copy(error = message)
+            Result.success(
+                ToolResult(
+                    text = message,
+                    structuredJson = """{"error":"$message"}""",
+                    isError = true
+                )
+            )
+        }
     }
 
     private suspend fun listToolsViaRemoteMcp(serverUrl: String): List<McpTool> {

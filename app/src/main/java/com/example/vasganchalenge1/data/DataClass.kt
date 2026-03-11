@@ -2,6 +2,7 @@ package com.example.vasganchalenge1.data
 
 import com.example.vasganchalenge1.data.repositories.AppSettings
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 data class ChatRequest(
     val model: String,
@@ -143,10 +144,14 @@ data class Chat(
 )
 
 data class UiChatMessage(
-    val id: Long = System.currentTimeMillis(),
+    val id: Long = nextUiChatMessageId(),
     val role: Role,
     val text: String,
     val violatesInvariants: Boolean = false
 )
 
 enum class Role { USER, ASSISTANT, TOOL }
+
+private val uiChatMessageIdSeed = AtomicLong(System.currentTimeMillis() * 1_000L)
+
+private fun nextUiChatMessageId(): Long = uiChatMessageIdSeed.incrementAndGet()
