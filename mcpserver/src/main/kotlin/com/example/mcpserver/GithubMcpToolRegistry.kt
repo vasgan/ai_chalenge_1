@@ -1,11 +1,22 @@
 package com.example.mcpserver
 
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import kotlin.math.roundToInt
 
 class GithubMcpToolRegistry(
     private val githubApiClient: GithubApiClient = GithubApiClient(),
-    private val githubTrackingTools: GithubTrackingTools = NoopGithubTrackingTools
+    private val githubTrackingTools: GithubTrackingTools = NoopGithubTrackingTools,
+    private val summaryStorageTools: SummaryStorageTools = NoopSummaryStorageTools
 ) {
+    private val anyMapAdapter = Moshi.Builder().build().adapter<Map<String, Any?>>(
+        Types.newParameterizedType(
+            Map::class.java,
+            String::class.java,
+            Any::class.java
+        )
+    )
+
     fun listTools(): List<Map<String, Any?>> = listOf(
         mapOf(
             "name" to "github_get_user",
@@ -78,6 +89,36 @@ class GithubMcpToolRegistry(
                 "type" to "object",
                 "properties" to emptyMap<String, Any?>(),
                 "required" to emptyList<String>()
+            )
+        ),
+        mapOf(
+            "name" to "summarize_github_user_profile",
+            "description" to "Сформировать краткую сводку профиля GitHub на основе результата github_get_user.",
+            "inputSchema" to mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "userJson" to mapOf(
+                        "description" to "JSON профиля пользователя GitHub (object или string)",
+                        "oneOf" to listOf(
+                            mapOf("type" to "object"),
+                            mapOf("type" to "string")
+                        )
+                    )
+                ),
+                "required" to listOf("userJson")
+            )
+        ),
+        mapOf(
+            "name" to "save_summary_to_file",
+            "description" to "Сохранить готовую текстовую сводку профиля локально на Android устройстве.",
+            "inputSchema" to mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "title" to mapOf("type" to "string"),
+                    "summaryText" to mapOf("type" to "string"),
+                    "rawJson" to mapOf("type" to "string")
+                ),
+                "required" to listOf("title", "summaryText", "rawJson")
             )
         )
     )
@@ -206,6 +247,65 @@ class GithubMcpToolRegistry(
                 }
             }
 
+            "summarize_github_user_profile" -> {
+                val userMap = normalizeGithubUser(arguments["userJson"])
+                    ?: return errorResult("userJson is required and must contain GitHub user JSON")
+
+                val login = userMap["login"].asText()
+                val name = userMap["name"].asText()
+                val publicRepos = userMap["public_repos"].asLong()
+                val followers = userMap["followers"].asLong()
+                val following = userMap["following"].asLong()
+                val bio = userMap["bio"].asText()
+                val createdAt = userMap["created_at"].asText()
+
+                val summaryText = buildString {
+                    append("GitHub профиль ")
+                    append(login.ifBlank { "unknown" })
+                    if (name.isNotBlank()) append(" ($name)")
+                    append(". ")
+                    append("Публичные репозитории: ${publicRepos ?: "n/a"}, ")
+                    append("подписчики: ${followers ?: "n/a"}, ")
+                    append("подписки: ${following ?: "n/a"}.")
+                    if (bio.isNotBlank()) append(" Bio: $bio.")
+                    if (createdAt.isNotBlank()) append(" Аккаунт создан: $createdAt.")
+                }
+
+                val structured = mapOf(
+                    "login" to login,
+                    "name" to name,
+                    "publicRepos" to publicRepos,
+                    "followers" to followers,
+                    "following" to following,
+                    "bio" to bio,
+                    "createdAt" to createdAt,
+                    "summaryText" to summaryText
+                )
+
+                successResult(summaryText, structured)
+            }
+
+            "save_summary_to_file" -> {
+                val title = arguments["title"]?.toString().orEmpty()
+                val summaryText = arguments["summaryText"]?.toString().orEmpty()
+                val rawJson = arguments["rawJson"]?.toString().orEmpty()
+
+                if (title.isBlank() || summaryText.isBlank() || rawJson.isBlank()) {
+                    errorResult("title, summaryText and rawJson are required")
+                } else {
+                    val result = summaryStorageTools.saveSummaryToFile(
+                        title = title,
+                        summaryText = summaryText,
+                        rawJson = rawJson
+                    )
+                    if (result.isError) {
+                        errorResult(result.text)
+                    } else {
+                        successResult(result.text, result.structured)
+                    }
+                }
+            }
+
             else -> errorResult("Unknown tool: $name")
         }
     }
@@ -230,6 +330,32 @@ class GithubMcpToolRegistry(
         return when (value) {
             is Number -> value.toDouble()
             is String -> value.toDoubleOrNull()
+            else -> null
+        }
+    }
+
+    private fun normalizeGithubUser(value: Any?): Map<String, Any?>? {
+        return when (value) {
+            is Map<*, *> -> value.entries
+                .filter { it.key != null }
+                .associate { it.key.toString() to it.value }
+            is String -> parseJsonMap(value)
+            else -> null
+        }
+    }
+
+    private fun parseJsonMap(raw: String): Map<String, Any?>? {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return null
+        return runCatching { anyMapAdapter.fromJson(trimmed) }.getOrNull()
+    }
+
+    private fun Any?.asText(): String = this?.toString().orEmpty()
+
+    private fun Any?.asLong(): Long? {
+        return when (this) {
+            is Number -> this.toLong()
+            is String -> this.toLongOrNull()
             else -> null
         }
     }

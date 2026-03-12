@@ -23,6 +23,14 @@ class ChatToolRoutingTest {
     }
 
     @Test
+    fun `pipeline command has second priority after tool`() {
+        assertEquals(
+            InitialChatRoute.DIRECT_PIPELINE,
+            initialChatRoute("/pipeline github_user_summary_and_save {\"username\":\"octocat\"}")
+        )
+    }
+
+    @Test
     fun `NoTool maps to normal chat flow`() {
         assertEquals(
             RoutedChatAction.NORMAL_CHAT,
@@ -37,6 +45,19 @@ class ChatToolRoutingTest {
             routedChatAction(
                 ToolResolution.ToolCall(
                     toolName = "github_get_user",
+                    argumentsJson = "{\"username\":\"octocat\"}"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `PipelineCall maps to pipeline execution flow`() {
+        assertEquals(
+            RoutedChatAction.EXECUTE_PIPELINE,
+            routedChatAction(
+                ToolResolution.PipelineCall(
+                    pipelineName = "github_user_summary_and_save",
                     argumentsJson = "{\"username\":\"octocat\"}"
                 )
             )

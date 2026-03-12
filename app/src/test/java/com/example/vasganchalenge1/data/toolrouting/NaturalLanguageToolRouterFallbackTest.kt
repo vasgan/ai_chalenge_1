@@ -4,6 +4,7 @@ import com.example.vasganchalenge1.data.ChatResponse
 import com.example.vasganchalenge1.data.Choice
 import com.example.vasganchalenge1.data.Message
 import com.example.vasganchalenge1.data.network.ApiService
+import com.example.vasganchalenge1.data.pipeline.McpPipelineDescriptor
 import com.example.vasganchalenge1.data.repositories.AppSettings
 import com.example.vasganchalenge1.data.repositories.McpTool
 import kotlinx.coroutines.runBlocking
@@ -17,7 +18,25 @@ class NaturalLanguageToolRouterFallbackTest {
         McpTool(name = "github_schedule_user_stars_tracking", requiredParams = listOf("username")),
         McpTool(name = "github_get_user_stars_stats"),
         McpTool(name = "github_stop_user_stars_tracking"),
-        McpTool(name = "github_get_user", requiredParams = listOf("username"))
+        McpTool(name = "github_get_user", requiredParams = listOf("username")),
+        McpTool(name = "summarize_github_user_profile", requiredParams = listOf("userJson")),
+        McpTool(name = "save_summary_to_file", requiredParams = listOf("title", "summaryText", "rawJson"))
+    )
+    private val pipelines = listOf(
+        McpPipelineDescriptor(
+            name = "github_user_summary_and_save",
+            description = "pipeline",
+            requiredArgs = listOf("username"),
+            requiredTools = listOf("github_get_user", "summarize_github_user_profile", "save_summary_to_file"),
+            stepsSummary = listOf("github_get_user", "summarize_github_user_profile", "save_summary_to_file")
+        ),
+        McpPipelineDescriptor(
+            name = "github_user_tracking_flow",
+            description = "tracking pipeline",
+            requiredArgs = listOf("username"),
+            requiredTools = listOf("github_schedule_user_stars_tracking", "github_get_user_stars_stats"),
+            stepsSummary = listOf("github_schedule_user_stars_tracking", "github_get_user_stars_stats")
+        )
     )
 
     private val noToolApi = object : ApiService {
@@ -37,7 +56,8 @@ class NaturalLanguageToolRouterFallbackTest {
         val result = router.resolve(
             settings = AppSettings(),
             userMessage = "Запусти сбор статистики звезд у пользователя octocat каждые 30 секунд",
-            availableTools = tools
+            availableTools = tools,
+            availablePipelines = pipelines
         )
 
         assertTrue(result is ToolResolution.ToolCall)
@@ -53,7 +73,8 @@ class NaturalLanguageToolRouterFallbackTest {
         val result = router.resolve(
             settings = AppSettings(),
             userMessage = "Покажи статистику за 12 часов по времени",
-            availableTools = tools
+            availableTools = tools,
+            availablePipelines = pipelines
         )
 
         assertTrue(result is ToolResolution.ToolCall)
@@ -69,7 +90,8 @@ class NaturalLanguageToolRouterFallbackTest {
         val result = router.resolve(
             settings = AppSettings(),
             userMessage = "Останови сбор статистики звезд",
-            availableTools = tools
+            availableTools = tools,
+            availablePipelines = pipelines
         )
 
         assertTrue(result is ToolResolution.ToolCall)
@@ -77,5 +99,37 @@ class NaturalLanguageToolRouterFallbackTest {
         assertEquals("github_stop_user_stars_tracking", result.toolName)
         assertEquals("{}", result.argumentsJson)
     }
-}
 
+    @Test
+    fun `fallback resolves summary pipeline command`() = runBlocking {
+        val router = NaturalLanguageToolRouter(noToolApi)
+        val result = router.resolve(
+            settings = AppSettings(),
+            userMessage = "Собери профиль пользователя octocat, сделай краткую сводку и сохрани результат",
+            availableTools = tools,
+            availablePipelines = pipelines
+        )
+
+        assertTrue(result is ToolResolution.PipelineCall)
+        result as ToolResolution.PipelineCall
+        assertEquals("github_user_summary_and_save", result.pipelineName)
+        assertEquals("{\"username\":\"octocat\"}", result.argumentsJson)
+    }
+
+    @Test
+    fun `fallback resolves tracking pipeline command`() = runBlocking {
+        val router = NaturalLanguageToolRouter(noToolApi)
+        val result = router.resolve(
+            settings = AppSettings(),
+            userMessage = "Запусти трекинг для пользователя octocat и потом покажи статистику за 12 часов",
+            availableTools = tools,
+            availablePipelines = pipelines
+        )
+
+        assertTrue(result is ToolResolution.PipelineCall)
+        result as ToolResolution.PipelineCall
+        assertEquals("github_user_tracking_flow", result.pipelineName)
+        assertTrue(result.argumentsJson.contains(""""username":"octocat""""))
+        assertTrue(result.argumentsJson.contains(""""period":"12h""""))
+    }
+}

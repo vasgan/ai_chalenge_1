@@ -8,6 +8,11 @@ sealed interface ToolResolution {
         val argumentsJson: String
     ) : ToolResolution
 
+    data class PipelineCall(
+        val pipelineName: String,
+        val argumentsJson: String
+    ) : ToolResolution
+
     data class ClarificationNeeded(
         val message: String
     ) : ToolResolution

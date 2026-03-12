@@ -9,6 +9,8 @@ import com.example.vasganchalenge1.data.MemoryField
 import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
+import com.example.vasganchalenge1.data.pipeline.McpPipelineOrchestrator
+import com.example.vasganchalenge1.data.pipeline.PipelineExecutionResult
 import com.example.vasganchalenge1.data.repositories.McpConnectionStatus
 import com.example.vasganchalenge1.data.repositories.AppSettings
 import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
@@ -38,6 +40,7 @@ class ChatViewModel @Inject constructor(
     private val repo: EchoRepository,
     private val store: ChatStoreRepository,
     private val mcpRepository: McpRepository,
+    private val pipelineOrchestrator: McpPipelineOrchestrator,
     private val toolRouter: NaturalLanguageToolRouter,
     private val workingMemoryManager: WorkingMemoryManager,
     private val longTermMemoryManager: LongTermMemoryManager,
@@ -135,12 +138,22 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        if (initialChatRoute(text) == InitialChatRoute.DIRECT_TOOL) {
-            val toolCommand = parseMcpToolCommand(text)
-            if (toolCommand != null) {
-                onToolCommand(text, toolCommand)
+        when (initialChatRoute(text)) {
+            InitialChatRoute.DIRECT_TOOL -> {
+                val toolCommand = parseMcpToolCommand(text)
+                if (toolCommand != null) {
+                    onToolCommand(text, toolCommand)
+                }
+                return
             }
-            return
+            InitialChatRoute.DIRECT_PIPELINE -> {
+                val pipelineCommand = parseMcpPipelineCommand(text)
+                if (pipelineCommand != null) {
+                    onPipelineCommand(text, pipelineCommand)
+                }
+                return
+            }
+            InitialChatRoute.NATURAL_LANGUAGE -> Unit
         }
 
         val command = text.toTaskCommand()
@@ -165,8 +178,9 @@ class ChatViewModel @Inject constructor(
         }
 
         val mcpState = mcpRepository.state.value
+        val availablePipelines = pipelineOrchestrator.availablePipelines(mcpState.tools)
         val canRouteTool = mcpState.connectionStatus == McpConnectionStatus.CONNECTED &&
-                mcpState.tools.isNotEmpty()
+                (mcpState.tools.isNotEmpty() || availablePipelines.isNotEmpty())
 
         if (!canRouteTool) {
             onRegularChatMessage(text)
@@ -183,7 +197,8 @@ class ChatViewModel @Inject constructor(
                 toolRouter.resolve(
                     settings = settings.value,
                     userMessage = text,
-                    availableTools = mcpState.tools
+                    availableTools = mcpState.tools,
+                    availablePipelines = availablePipelines
                 )
             }.getOrDefault(ToolResolution.NoTool)
 
@@ -196,6 +211,16 @@ class ChatViewModel @Inject constructor(
                         rawText = text,
                         command = McpToolCommand(
                             name = resolution.toolName,
+                            argumentsJson = resolution.argumentsJson
+                        )
+                    )
+                }
+                RoutedChatAction.EXECUTE_PIPELINE -> {
+                    resolution as ToolResolution.PipelineCall
+                    onPipelineCommand(
+                        rawText = text,
+                        command = McpPipelineCommand(
+                            name = resolution.pipelineName,
                             argumentsJson = resolution.argumentsJson
                         )
                     )
@@ -473,6 +498,67 @@ class ChatViewModel @Inject constructor(
                         metrics = _state.value.metrics
                     )
                 }
+        }
+    }
+
+    private fun onPipelineCommand(rawText: String, command: McpPipelineCommand) {
+        val userMsg = UiChatMessage(role = Role.USER, text = rawText)
+        val preMessagesRaw = _state.value.messages + userMsg
+        _state.value = _state.value.copy(
+            input = "",
+            isLoading = true,
+            error = null,
+            messages = preMessagesRaw
+        )
+
+        viewModelScope.launch {
+            val pipelineResult = runCatching {
+                pipelineOrchestrator.execute(command.name, command.argumentsJson)
+            }.getOrElse { throwable ->
+                PipelineExecutionResult(
+                    success = false,
+                    pipelineName = command.name,
+                    steps = emptyList(),
+                    finalMessage = throwable.message ?: "Pipeline execution failed"
+                )
+            }
+
+            val pipelineText = buildPipelineChatText(pipelineResult)
+            val pipelineMsg = UiChatMessage(
+                role = Role.TOOL,
+                text = pipelineText
+            )
+            val updatedMessages = preMessagesRaw + pipelineMsg
+            _state.value = _state.value.copy(
+                isLoading = false,
+                error = if (pipelineResult.success) null else pipelineResult.finalMessage,
+                messages = updatedMessages
+            )
+            persistChat(
+                facts = _state.value.facts,
+                factsMessageCount = _state.value.factsMessageCount,
+                messages = updatedMessages,
+                metrics = _state.value.metrics
+            )
+        }
+    }
+
+    private fun buildPipelineChatText(result: PipelineExecutionResult): String {
+        val stepsText = if (result.steps.isEmpty()) {
+            "Шаги не выполнены."
+        } else {
+            result.steps.joinToString(separator = "\n") { step ->
+                val marker = if (step.success) "✅" else "❌"
+                val body = step.textResult
+                    ?: step.errorMessage
+                    ?: "no output"
+                "$marker ${step.stepName} (${step.toolName}): $body"
+            }
+        }
+        return buildString {
+            append("Pipeline: ${result.pipelineName}\n")
+            append(stepsText)
+            append("\n\nИтог: ${result.finalMessage}")
         }
     }
 

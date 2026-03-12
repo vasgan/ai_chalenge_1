@@ -1,5 +1,6 @@
 package com.example.vasganchalenge1.data.toolrouting
 
+import com.example.vasganchalenge1.data.pipeline.McpPipelineDescriptor
 import com.example.vasganchalenge1.data.repositories.McpTool
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -20,10 +21,19 @@ class ToolRouterResponseParserTest {
             requiredParams = listOf("owner", "repo")
         )
     )
+    private val pipelines = listOf(
+        McpPipelineDescriptor(
+            name = "github_user_summary_and_save",
+            description = "pipeline",
+            requiredArgs = listOf("username"),
+            requiredTools = emptyList(),
+            stepsSummary = listOf("a", "b", "c")
+        )
+    )
 
     @Test
     fun `parse no_tool`() {
-        val result = parser.parse("{\"action\":\"no_tool\"}", tools)
+        val result = parser.parse("{\"action\":\"no_tool\"}", tools, pipelines)
         assertTrue(result is ToolResolution.NoTool)
     }
 
@@ -35,7 +45,7 @@ class ToolRouterResponseParserTest {
             ```
         """.trimIndent()
 
-        val result = parser.parse(raw, tools)
+        val result = parser.parse(raw, tools, pipelines)
         assertTrue(result is ToolResolution.ToolCall)
         result as ToolResolution.ToolCall
         assertEquals("github_get_user", result.toolName)
@@ -44,7 +54,7 @@ class ToolRouterResponseParserTest {
 
     @Test
     fun `invalid json falls back to no_tool`() {
-        val result = parser.parse("not-json", tools)
+        val result = parser.parse("not-json", tools, pipelines)
         assertTrue(result is ToolResolution.NoTool)
     }
 
@@ -52,7 +62,8 @@ class ToolRouterResponseParserTest {
     fun `unknown tool falls back to no_tool`() {
         val result = parser.parse(
             "{\"action\":\"tool_call\",\"tool\":\"github_unknown\",\"arguments\":{}}",
-            tools
+            tools,
+            pipelines
         )
         assertTrue(result is ToolResolution.NoTool)
     }
@@ -61,8 +72,22 @@ class ToolRouterResponseParserTest {
     fun `missing required argument returns clarification`() {
         val result = parser.parse(
             "{\"action\":\"tool_call\",\"tool\":\"github_get_repo\",\"arguments\":{\"owner\":\"octocat\"}}",
-            tools
+            tools,
+            pipelines
         )
         assertTrue(result is ToolResolution.ClarificationNeeded)
+    }
+
+    @Test
+    fun `parse pipeline_call`() {
+        val result = parser.parse(
+            "{\"action\":\"pipeline_call\",\"pipeline\":\"github_user_summary_and_save\",\"arguments\":{\"username\":\"octocat\"}}",
+            tools,
+            pipelines
+        )
+        assertTrue(result is ToolResolution.PipelineCall)
+        result as ToolResolution.PipelineCall
+        assertEquals("github_user_summary_and_save", result.pipelineName)
+        assertEquals("{\"username\":\"octocat\"}", result.argumentsJson)
     }
 }

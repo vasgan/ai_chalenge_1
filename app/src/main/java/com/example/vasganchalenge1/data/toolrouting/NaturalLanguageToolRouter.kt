@@ -3,6 +3,7 @@ package com.example.vasganchalenge1.data.toolrouting
 import com.example.vasganchalenge1.data.ChatRequest
 import com.example.vasganchalenge1.data.Message
 import com.example.vasganchalenge1.data.network.ApiService
+import com.example.vasganchalenge1.data.pipeline.McpPipelineDescriptor
 import com.example.vasganchalenge1.data.repositories.AppSettings
 import com.example.vasganchalenge1.data.repositories.McpTool
 import kotlinx.serialization.json.buildJsonObject
@@ -21,16 +22,17 @@ class NaturalLanguageToolRouter @Inject constructor(
     suspend fun resolve(
         settings: AppSettings,
         userMessage: String,
-        availableTools: List<McpTool>
+        availableTools: List<McpTool>,
+        availablePipelines: List<McpPipelineDescriptor>
     ): ToolResolution {
-        if (availableTools.isEmpty()) return ToolResolution.NoTool
+        if (availableTools.isEmpty() && availablePipelines.isEmpty()) return ToolResolution.NoTool
 
         val raw = runCatching {
             val response = apiService.chatCompletion(
                 ChatRequest(
                     model = settings.model,
                     messages = listOf(
-                        Message("system", promptBuilder.buildSystemPrompt(availableTools)),
+                        Message("system", promptBuilder.buildSystemPrompt(availableTools, availablePipelines)),
                         Message("user", userMessage)
                     ),
                     stop = null,
@@ -47,13 +49,13 @@ class NaturalLanguageToolRouter @Inject constructor(
             println("NaturalToolRouter raw response: $raw")
         }
 
-        val parsed = parser.parse(raw, availableTools)
+        val parsed = parser.parse(raw, availableTools, availablePipelines)
         if (parsed !is ToolResolution.NoTool) {
             println("NaturalToolRouter parsed resolution: $parsed")
             return parsed
         }
 
-        val fallback = fallbackRuleBased(userMessage, availableTools)
+        val fallback = fallbackRuleBased(userMessage, availableTools, availablePipelines)
         if (fallback !is ToolResolution.NoTool) {
             println("NaturalToolRouter fallback resolution: $fallback")
         }
@@ -62,13 +64,48 @@ class NaturalLanguageToolRouter @Inject constructor(
 
     private fun fallbackRuleBased(
         userMessage: String,
-        availableTools: List<McpTool>
+        availableTools: List<McpTool>,
+        availablePipelines: List<McpPipelineDescriptor>
     ): ToolResolution {
         val normalized = userMessage.lowercase()
+        val userSummaryPipeline = availablePipelines.firstOrNull {
+            it.name == "github_user_summary_and_save"
+        }
+        val trackingPipeline = availablePipelines.firstOrNull {
+            it.name == "github_user_tracking_flow"
+        }
         val scheduleTool = availableTools.firstOrNull { it.name == "github_schedule_user_stars_tracking" }
         val statsTool = availableTools.firstOrNull { it.name == "github_get_user_stars_stats" }
         val stopTool = availableTools.firstOrNull { it.name == "github_stop_user_stars_tracking" }
         val userTool = availableTools.firstOrNull { it.name == "github_get_user" }
+
+        if (userSummaryPipeline != null && isSummaryPipelineRequest(normalized)) {
+            val username = extractUsername(userMessage)
+                ?: return ToolResolution.ClarificationNeeded("Уточни username GitHub для сводки профиля.")
+            return ToolResolution.PipelineCall(
+                pipelineName = userSummaryPipeline.name,
+                argumentsJson = buildJsonObject {
+                    put("username", username)
+                }.toString()
+            )
+        }
+
+        if (trackingPipeline != null && isTrackingPipelineRequest(normalized)) {
+            val username = extractUsername(userMessage)
+                ?: return ToolResolution.ClarificationNeeded("Уточни username GitHub для запуска tracking pipeline.")
+            return ToolResolution.PipelineCall(
+                pipelineName = trackingPipeline.name,
+                argumentsJson = buildJsonObject {
+                    put("username", username)
+                    extractIntervalSeconds(userMessage)?.let { put("intervalSeconds", it) }
+                    extractDurationHours(userMessage)?.let { put("durationHours", it) }
+                    extractStatsPeriod(normalized)?.let { put("period", it) }
+                    if (normalized.contains("останов")) {
+                        put("stopAfterStats", true)
+                    }
+                }.toString()
+            )
+        }
 
         if (stopTool != null && isStopTrackingRequest(normalized)) {
             return ToolResolution.ToolCall(
@@ -133,6 +170,43 @@ class NaturalLanguageToolRouter @Inject constructor(
         return ToolResolution.NoTool
     }
 
+    private fun isSummaryPipelineRequest(normalized: String): Boolean {
+        val summaryIntent = normalized.contains("сводк") ||
+            normalized.contains("отчет") ||
+            normalized.contains("отчёт") ||
+            normalized.contains("суммир") ||
+            normalized.contains("summary")
+        val saveIntent = normalized.contains("сохрани") ||
+            normalized.contains("сохран")
+        val profileContext = normalized.contains("профил") ||
+            normalized.contains("пользовател") ||
+            normalized.contains("github")
+
+        return (summaryIntent && saveIntent && profileContext) ||
+            (normalized.contains("получи") && normalized.contains("суммир") && saveIntent)
+    }
+
+    private fun isTrackingPipelineRequest(normalized: String): Boolean {
+        val trackingIntent = normalized.contains("запусти") ||
+            normalized.contains("начни") ||
+            normalized.contains("собирай") ||
+            normalized.contains("трек") ||
+            normalized.contains("tracking")
+        val explicitNextStep = normalized.contains("и потом") ||
+            normalized.contains("а потом") ||
+            normalized.contains("затем") ||
+            normalized.contains("после этого") ||
+            normalized.contains("потом покажи") ||
+            normalized.contains("затем покажи")
+        val statsIntent = normalized.contains("покажи статист") ||
+            normalized.contains("дай статист") ||
+            normalized.contains("получи статист") ||
+            normalized.contains("report") ||
+            normalized.contains("отчет") ||
+            normalized.contains("отчёт")
+        return trackingIntent && explicitNextStep && statsIntent
+    }
+
     private fun isScheduleTrackingRequest(normalized: String): Boolean {
         val startIntent = normalized.contains("запусти") ||
             normalized.contains("начни") ||
@@ -179,7 +253,7 @@ class NaturalLanguageToolRouter @Inject constructor(
 
     private fun extractUsername(text: String): String? {
         val regexByWords = Regex(
-            pattern = "(?i)(?:у\\s+пользователя|пользователь|user|username)\\s+([A-Za-z0-9-]{1,39})"
+            pattern = "(?i)(?:у\\s+пользователя|пользовател(?:ь|я|ю)|user|username)\\s+([A-Za-z0-9-]{1,39})"
         )
         regexByWords.find(text)?.groupValues?.getOrNull(1)?.let { return it }
 

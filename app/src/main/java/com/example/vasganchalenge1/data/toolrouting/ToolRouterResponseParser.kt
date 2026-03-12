@@ -1,5 +1,6 @@
 package com.example.vasganchalenge1.data.toolrouting
 
+import com.example.vasganchalenge1.data.pipeline.McpPipelineDescriptor
 import com.example.vasganchalenge1.data.repositories.McpTool
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -13,7 +14,11 @@ class ToolRouterResponseParser(
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {
 
-    fun parse(raw: String, availableTools: List<McpTool>): ToolResolution {
+    fun parse(
+        raw: String,
+        availableTools: List<McpTool>,
+        availablePipelines: List<McpPipelineDescriptor>
+    ): ToolResolution {
         val jsonText = extractJsonObject(raw) ?: return ToolResolution.NoTool
         val root = runCatching { json.parseToJsonElement(jsonText).jsonObject }.getOrNull()
             ?: return ToolResolution.NoTool
@@ -26,6 +31,7 @@ class ToolRouterResponseParser(
                 if (message.isBlank()) ToolResolution.NoTool else ToolResolution.ClarificationNeeded(message)
             }
             "tool_call" -> parseToolCall(root, availableTools)
+            "pipeline_call" -> parsePipelineCall(root, availablePipelines)
             else -> ToolResolution.NoTool
         }
     }
@@ -48,6 +54,31 @@ class ToolRouterResponseParser(
 
         return ToolResolution.ToolCall(
             toolName = toolName,
+            argumentsJson = arguments.toString()
+        )
+    }
+
+    private fun parsePipelineCall(
+        root: JsonObject,
+        availablePipelines: List<McpPipelineDescriptor>
+    ): ToolResolution {
+        val pipelineName = root["pipeline"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (pipelineName.isBlank()) return ToolResolution.NoTool
+
+        val pipeline = availablePipelines.firstOrNull { it.name == pipelineName } ?: return ToolResolution.NoTool
+        val arguments = root["arguments"] as? JsonObject ?: return ToolResolution.NoTool
+
+        val missingRequired = pipeline.requiredArgs.filter { required ->
+            isMissingArgument(arguments[required])
+        }
+        if (missingRequired.isNotEmpty()) {
+            return ToolResolution.ClarificationNeeded(
+                "Уточни параметры pipeline: ${missingRequired.joinToString(", ")}."
+            )
+        }
+
+        return ToolResolution.PipelineCall(
+            pipelineName = pipelineName,
             argumentsJson = arguments.toString()
         )
     }

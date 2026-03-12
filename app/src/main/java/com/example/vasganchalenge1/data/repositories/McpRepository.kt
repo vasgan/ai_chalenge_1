@@ -5,6 +5,7 @@ import com.example.mcpserver.GithubMcpToolRegistry
 import com.example.mcpserver.GithubTrackingTools
 import com.example.mcpserver.LocalMcpServerManager
 import com.example.mcpserver.LocalServerStatus
+import com.example.mcpserver.SummaryStorageTools
 import io.ktor.client.HttpClient
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
@@ -68,11 +69,15 @@ data class McpSharedState(
 class McpRepository @Inject constructor(
     private val httpClient: HttpClient,
     private val localServerManager: LocalMcpServerManager,
-    githubTrackingTools: GithubTrackingTools
+    githubTrackingTools: GithubTrackingTools,
+    summaryStorageTools: SummaryStorageTools
 ) {
     private val tag = "McpRepository"
     private val json = Json { ignoreUnknownKeys = true }
-    private val localRegistry = GithubMcpToolRegistry(githubTrackingTools = githubTrackingTools)
+    private val localRegistry = GithubMcpToolRegistry(
+        githubTrackingTools = githubTrackingTools,
+        summaryStorageTools = summaryStorageTools
+    )
 
     private val _state = MutableStateFlow(McpSharedState())
     val state: StateFlow<McpSharedState> = _state.asStateFlow()
@@ -304,7 +309,7 @@ class McpRepository @Inject constructor(
 
         return ToolResult(
             text = text.ifBlank { result.toString() },
-            structuredJson = (result["structuredContent"] as? Map<*, *>)?.toString(),
+            structuredJson = result["structuredContent"]?.toJsonElement()?.toString(),
             isError = result["isError"] as? Boolean ?: false
         )
     }
@@ -318,8 +323,8 @@ class McpRepository @Inject constructor(
 
     private fun JsonElement.toAnyValue(): Any? {
         return when (this) {
-            is JsonObject -> this.toString()
-            is JsonArray -> this.toString()
+            is JsonObject -> this.mapValues { (_, value) -> value.toAnyValue() }
+            is JsonArray -> this.map { it.toAnyValue() }
             is JsonPrimitive -> {
                 booleanOrNull
                     ?: longOrNull
@@ -349,12 +354,7 @@ class McpRepository @Inject constructor(
 private fun Map<String, Any?>.toJsonObject(): JsonObject {
     return buildJsonObject {
         entries.forEach { (key, value) ->
-            when (value) {
-                null -> put(key, JsonPrimitive(""))
-                is Boolean -> put(key, JsonPrimitive(value))
-                is Number -> put(key, JsonPrimitive(value))
-                else -> put(key, JsonPrimitive(value.toString()))
-            }
+            put(key, value.toJsonElement())
         }
     }
 }
