@@ -5,7 +5,8 @@ sealed interface ToolResolution {
 
     data class ToolCall(
         val toolName: String,
-        val argumentsJson: String
+        val argumentsJson: String,
+        val serverId: String? = null
     ) : ToolResolution
 
     data class PipelineCall(

@@ -40,7 +40,19 @@ class ToolRouterResponseParser(
         val toolName = root["tool"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         if (toolName.isBlank()) return ToolResolution.NoTool
 
-        val tool = availableTools.firstOrNull { it.name == toolName } ?: return ToolResolution.NoTool
+        val serverId = root["serverId"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null }
+        val candidates = if (serverId != null) {
+            availableTools.filter { it.name == toolName && it.serverId == serverId }
+        } else {
+            availableTools.filter { it.name == toolName }
+        }
+        if (candidates.isEmpty()) return ToolResolution.NoTool
+        if (serverId == null && candidates.map { it.serverId }.distinct().size > 1) {
+            return ToolResolution.ClarificationNeeded(
+                "Инструмент $toolName доступен на нескольких серверах, укажи сервер."
+            )
+        }
+        val tool = candidates.first()
         val arguments = root["arguments"] as? JsonObject ?: return ToolResolution.NoTool
 
         val missingRequired = tool.requiredParams.filter { required ->
@@ -54,7 +66,8 @@ class ToolRouterResponseParser(
 
         return ToolResolution.ToolCall(
             toolName = toolName,
-            argumentsJson = arguments.toString()
+            argumentsJson = arguments.toString(),
+            serverId = tool.serverId.ifBlank { serverId }
         )
     }
 

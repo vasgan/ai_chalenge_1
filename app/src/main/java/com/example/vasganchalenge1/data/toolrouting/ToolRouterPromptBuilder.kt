@@ -19,7 +19,7 @@ class ToolRouterPromptBuilder {
                     separator = "\",\""
                 )
                 val schema = tool.inputSchemaJson.ifBlank { "{}" }
-                "  {\"name\":\"${escape(tool.name)}\",\"description\":\"${escape(tool.description)}\",\"required\":$required,\"input_schema\":$schema}"
+                "  {\"server_id\":\"${escape(tool.serverId)}\",\"server_label\":\"${escape(tool.serverLabel)}\",\"name\":\"${escape(tool.name)}\",\"description\":\"${escape(tool.description)}\",\"required\":$required,\"input_schema\":$schema}"
             }
         }
         val pipelinesBlock = if (pipelines.isEmpty()) {
@@ -62,13 +62,14 @@ class ToolRouterPromptBuilder {
 
             Allowed formats:
             1) {"action":"no_tool"}
-            2) {"action":"tool_call","tool":"tool_name","arguments":{...}}
+            2) {"action":"tool_call","tool":"tool_name","serverId":"server_id","arguments":{...}}
             3) {"action":"pipeline_call","pipeline":"pipeline_name","arguments":{...}}
             4) {"action":"clarification","message":"..."}
 
             Rules:
             - Choose tool_call only if the user clearly asks for data/action matching one of the tools.
             - Choose pipeline_call if the user asks for multi-step flow that matches one of pipelines.
+            - For tool_call, always return serverId from the provided tool list.
             - If data is missing for a valid tool call, return clarification.
             - If data is missing for a valid pipeline call, return clarification.
             - Never invent tools not in the provided list.

@@ -22,9 +22,17 @@ class McpPipelineOrchestrator @Inject constructor(
         return McpPipelineCatalog.availableFor(toolNames)
     }
 
+    fun findPipeline(
+        pipelineName: String,
+        availableTools: List<McpTool>
+    ): McpPipelineDescriptor? {
+        return availablePipelines(availableTools).firstOrNull { it.name == pipelineName }
+    }
+
     suspend fun execute(
         pipelineName: String,
-        argumentsJson: String
+        argumentsJson: String,
+        onProgress: ((List<PipelineStepResult>) -> Unit)? = null
     ): PipelineExecutionResult {
         val available = availablePipelines(mcpRepository.state.value.tools)
         val descriptor = available.firstOrNull { it.name == pipelineName }
@@ -37,10 +45,21 @@ class McpPipelineOrchestrator @Inject constructor(
 
         val args = parseArgs(argumentsJson)
         return when (descriptor.name) {
+            McpPipelineCatalog.crossServerGithubReportFlow.name,
             McpPipelineCatalog.githubUserSummaryAndSave.name ->
-                executeGithubUserSummaryAndSave(descriptor.name, args)
+                executeCrossServerGithubReportFlow(
+                    descriptor = descriptor,
+                    args = args,
+                    onProgress = onProgress
+                )
+
             McpPipelineCatalog.githubUserTrackingFlow.name ->
-                executeGithubUserTrackingFlow(descriptor.name, args)
+                executeGithubUserTrackingFlow(
+                    descriptor = descriptor,
+                    args = args,
+                    onProgress = onProgress
+                )
+
             else -> PipelineExecutionResult(
                 success = false,
                 pipelineName = descriptor.name,
@@ -50,72 +69,122 @@ class McpPipelineOrchestrator @Inject constructor(
         }
     }
 
-    private suspend fun executeGithubUserSummaryAndSave(
-        pipelineName: String,
-        args: JsonObject
+    private suspend fun executeCrossServerGithubReportFlow(
+        descriptor: McpPipelineDescriptor,
+        args: JsonObject,
+        onProgress: ((List<PipelineStepResult>) -> Unit)?
     ): PipelineExecutionResult {
-        val username = args["username"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-        if (username.isBlank()) {
+        val pipelineName = descriptor.name
+        val username = args.string("username").orEmpty().trim()
+        val repo = args.string("repo").orEmpty().trim()
+        if (username.isBlank() || repo.isBlank()) {
             return PipelineExecutionResult(
                 success = false,
                 pipelineName = pipelineName,
                 steps = emptyList(),
-                finalMessage = "Для pipeline $pipelineName нужен параметр username"
+                finalMessage = "Для pipeline $pipelineName нужны параметры username и repo"
             )
         }
 
         val steps = mutableListOf<PipelineStepResult>()
+        fun push(step: PipelineStepResult) {
+            steps += step
+            onProgress?.invoke(steps.toList())
+        }
 
+        val step1Def = descriptor.steps[0]
         val step1 = executeStep(
-            stepName = "Fetch GitHub user",
-            toolName = "github_get_user",
+            stepDef = step1Def,
             argumentsJson = buildJsonObject { put("username", username) }.toString()
         )
-        steps += step1
+        push(step1)
         if (!step1.success) {
             return PipelineExecutionResult(
                 success = false,
                 pipelineName = pipelineName,
                 steps = steps,
-                finalMessage = "Pipeline остановлен на шаге github_get_user: ${step1.errorMessage ?: step1.textResult.orEmpty()}"
+                finalMessage = "Pipeline остановлен на шаге ${step1.toolName}: ${step1.errorMessage ?: step1.textResult.orEmpty()}"
             )
         }
 
-        val rawUserJson = step1.structuredResult ?: "{}"
+        val step2Def = descriptor.steps[1]
         val step2 = executeStep(
-            stepName = "Summarize GitHub profile",
-            toolName = "summarize_github_user_profile",
+            stepDef = step2Def,
             argumentsJson = buildJsonObject {
-                put("userJson", rawUserJson)
+                put("owner", username)
+                put("repo", repo)
             }.toString()
         )
-        steps += step2
+        push(step2)
         if (!step2.success) {
             return PipelineExecutionResult(
                 success = false,
                 pipelineName = pipelineName,
                 steps = steps,
-                finalMessage = "Pipeline остановлен на шаге summarize_github_user_profile: ${step2.errorMessage ?: step2.textResult.orEmpty()}"
+                finalMessage = "Pipeline остановлен на шаге ${step2.toolName}: ${step2.errorMessage ?: step2.textResult.orEmpty()}"
             )
         }
 
-        val summaryText = step2.textResult.orEmpty().ifBlank { "GitHub summary for $username" }
+        val step3Def = descriptor.steps[2]
         val step3 = executeStep(
-            stepName = "Save summary locally",
-            toolName = "save_summary_to_file",
+            stepDef = step3Def,
             argumentsJson = buildJsonObject {
-                put("title", "GitHub summary for $username")
-                put("summaryText", summaryText)
-                put("rawJson", rawUserJson)
+                put("owner", username)
+                put("repo", repo)
             }.toString()
         )
-        steps += step3
+        push(step3)
         if (!step3.success) {
             return PipelineExecutionResult(
                 success = false,
                 pipelineName = pipelineName,
                 steps = steps,
-                finalMessage = "Pipeline остановлен на шаге save_summary_to_file: ${step3.errorMessage ?: step3.textResult.orEmpty()}"
+                finalMessage = "Pipeline остановлен на шаге ${step3.toolName}: ${step3.errorMessage ?: step3.textResult.orEmpty()}"
+            )
+        }
+
+        val step4Def = descriptor.steps[3]
+        val step4 = executeStep(
+            stepDef = step4Def,
+            argumentsJson = buildJsonObject {
+                put("userJson", step1.structuredResult ?: "{}")
+                put("repoJson", step2.structuredResult ?: "{}")
+                put("issuesJson", extractIssuesJson(step3.structuredResult))
+            }.toString()
+        )
+        push(step4)
+        if (!step4.success) {
+            return PipelineExecutionResult(
+                success = false,
+                pipelineName = pipelineName,
+                steps = steps,
+                finalMessage = "Pipeline остановлен на шаге ${step4.toolName}: ${step4.errorMessage ?: step4.textResult.orEmpty()}"
+            )
+        }
+
+        val step5Def = descriptor.steps[4]
+        val step5 = executeStep(
+            stepDef = step5Def,
+            argumentsJson = buildJsonObject {
+                put("title", "GitHub report for $username/$repo")
+                put("summaryText", step4.textResult.orEmpty())
+                put(
+                    "rawJson",
+                    buildJsonObject {
+                        put("user", step1.structuredResult ?: "{}")
+                        put("repo", step2.structuredResult ?: "{}")
+                        put("issues", extractIssuesJson(step3.structuredResult))
+                    }.toString()
+                )
+            }.toString()
+        )
+        push(step5)
+        if (!step5.success) {
+            return PipelineExecutionResult(
+                success = false,
+                pipelineName = pipelineName,
+                steps = steps,
+                finalMessage = "Pipeline остановлен на шаге ${step5.toolName}: ${step5.errorMessage ?: step5.textResult.orEmpty()}"
             )
         }
 
@@ -123,14 +192,16 @@ class McpPipelineOrchestrator @Inject constructor(
             success = true,
             pipelineName = pipelineName,
             steps = steps,
-            finalMessage = step3.textResult ?: "Pipeline $pipelineName завершен успешно"
+            finalMessage = step5.textResult ?: "Pipeline $pipelineName завершен успешно"
         )
     }
 
     private suspend fun executeGithubUserTrackingFlow(
-        pipelineName: String,
-        args: JsonObject
+        descriptor: McpPipelineDescriptor,
+        args: JsonObject,
+        onProgress: ((List<PipelineStepResult>) -> Unit)?
     ): PipelineExecutionResult {
+        val pipelineName = descriptor.name
         val username = args.string("username").orEmpty().trim()
         if (username.isBlank()) {
             return PipelineExecutionResult(
@@ -142,106 +213,112 @@ class McpPipelineOrchestrator @Inject constructor(
         }
 
         val steps = mutableListOf<PipelineStepResult>()
-
-        val scheduleArgs = buildJsonObject {
-            put("username", username)
-            args.int("intervalSeconds")?.let { put("intervalSeconds", it) }
-            args.double("intervalMinutes")?.let { put("intervalMinutes", it) }
-            args.int("durationHours")?.let { put("durationHours", it) }
-            args.string("metric")?.takeIf { it.isNotBlank() }?.let { put("metric", it) }
-            args.string("title")?.takeIf { it.isNotBlank() }?.let { put("title", it) }
+        fun push(step: PipelineStepResult) {
+            steps += step
+            onProgress?.invoke(steps.toList())
         }
-        val step1 = executeStep(
-            stepName = "Start tracking",
-            toolName = "github_schedule_user_stars_tracking",
-            argumentsJson = scheduleArgs.toString()
+
+        val startDef = descriptor.steps[0]
+        val startStep = executeStep(
+            stepDef = startDef,
+            argumentsJson = buildJsonObject {
+                put("username", username)
+                args.int("intervalSeconds")?.let { put("intervalSeconds", it) }
+                args.double("intervalMinutes")?.let { put("intervalMinutes", it) }
+                args.int("durationHours")?.let { put("durationHours", it) }
+                args.string("metric")?.takeIf { it.isNotBlank() }?.let { put("metric", it) }
+                args.string("title")?.takeIf { it.isNotBlank() }?.let { put("title", it) }
+            }.toString()
         )
-        steps += step1
-        if (!step1.success) {
+        push(startStep)
+        if (!startStep.success) {
             return PipelineExecutionResult(
                 success = false,
                 pipelineName = pipelineName,
                 steps = steps,
-                finalMessage = "Pipeline остановлен на шаге github_schedule_user_stars_tracking: ${step1.errorMessage ?: step1.textResult.orEmpty()}"
+                finalMessage = "Pipeline остановлен на шаге ${startStep.toolName}: ${startStep.errorMessage ?: startStep.textResult.orEmpty()}"
             )
         }
 
-        val statsArgs = buildJsonObject {
-            put("username", username)
-            args.string("period")?.takeIf { it.isNotBlank() }?.let { put("period", it) }
-            args.bool("includeTimestamps")?.let { put("includeTimestamps", it) }
-        }
-        val step2 = executeStep(
-            stepName = "Get tracking stats",
-            toolName = "github_get_user_stars_stats",
-            argumentsJson = statsArgs.toString()
+        val statsDef = descriptor.steps[1]
+        val statsStep = executeStep(
+            stepDef = statsDef,
+            argumentsJson = buildJsonObject {
+                put("username", username)
+                args.string("period")?.takeIf { it.isNotBlank() }?.let { put("period", it) }
+                args.bool("includeTimestamps")?.let { put("includeTimestamps", it) }
+            }.toString()
         )
-        steps += step2
-        if (!step2.success) {
+        push(statsStep)
+        if (!statsStep.success) {
             return PipelineExecutionResult(
                 success = false,
                 pipelineName = pipelineName,
                 steps = steps,
-                finalMessage = "Pipeline остановлен на шаге github_get_user_stars_stats: ${step2.errorMessage ?: step2.textResult.orEmpty()}"
+                finalMessage = "Pipeline остановлен на шаге ${statsStep.toolName}: ${statsStep.errorMessage ?: statsStep.textResult.orEmpty()}"
             )
         }
 
         val shouldStop = args.bool("stopAfterStats") == true
-        if (shouldStop) {
-            val hasStopTool = mcpRepository.state.value.tools.any { it.name == "github_stop_user_stars_tracking" }
-            if (hasStopTool) {
-                val step3 = executeStep(
-                    stepName = "Stop tracking",
-                    toolName = "github_stop_user_stars_tracking",
-                    argumentsJson = "{}"
-                )
-                steps += step3
-                if (!step3.success) {
-                    return PipelineExecutionResult(
-                        success = false,
-                        pipelineName = pipelineName,
-                        steps = steps,
-                        finalMessage = "Pipeline остановлен на шаге github_stop_user_stars_tracking: ${step3.errorMessage ?: step3.textResult.orEmpty()}"
-                    )
-                }
-                return PipelineExecutionResult(
-                    success = true,
-                    pipelineName = pipelineName,
-                    steps = steps,
-                    finalMessage = step3.textResult ?: "Pipeline $pipelineName завершен успешно"
-                )
-            }
+        if (!shouldStop) {
+            return PipelineExecutionResult(
+                success = true,
+                pipelineName = pipelineName,
+                steps = steps,
+                finalMessage = statsStep.textResult ?: "Pipeline $pipelineName завершен успешно"
+            )
+        }
+
+        val stopDef = descriptor.steps[2]
+        val stopStep = executeStep(
+            stepDef = stopDef,
+            argumentsJson = "{}"
+        )
+        push(stopStep)
+        if (!stopStep.success) {
+            return PipelineExecutionResult(
+                success = false,
+                pipelineName = pipelineName,
+                steps = steps,
+                finalMessage = "Pipeline остановлен на шаге ${stopStep.toolName}: ${stopStep.errorMessage ?: stopStep.textResult.orEmpty()}"
+            )
         }
 
         return PipelineExecutionResult(
             success = true,
             pipelineName = pipelineName,
             steps = steps,
-            finalMessage = step2.textResult ?: "Pipeline $pipelineName завершен успешно"
+            finalMessage = stopStep.textResult ?: "Pipeline $pipelineName завершен успешно"
         )
     }
 
     private suspend fun executeStep(
-        stepName: String,
-        toolName: String,
+        stepDef: PipelineStepDefinition,
         argumentsJson: String
     ): PipelineStepResult {
-        val response = runCatching { mcpRepository.callTool(toolName, argumentsJson).getOrThrow() }
-            .getOrElse { throwable ->
-                return PipelineStepResult(
-                    stepName = stepName,
-                    toolName = toolName,
-                    success = false,
-                    textResult = null,
-                    structuredResult = null,
-                    errorMessage = throwable.message ?: "Tool execution failed"
-                )
-            }
+        val response = runCatching {
+            mcpRepository.callTool(
+                name = stepDef.toolName,
+                argumentsJson = argumentsJson,
+                preferredServerId = stepDef.serverId
+            ).getOrThrow()
+        }.getOrElse { throwable ->
+            return PipelineStepResult(
+                stepName = stepDef.stepName,
+                serverId = stepDef.serverId,
+                toolName = stepDef.toolName,
+                success = false,
+                textResult = null,
+                structuredResult = null,
+                errorMessage = throwable.message ?: "Tool execution failed"
+            )
+        }
 
         if (response.isError) {
             return PipelineStepResult(
-                stepName = stepName,
-                toolName = toolName,
+                stepName = stepDef.stepName,
+                serverId = stepDef.serverId,
+                toolName = stepDef.toolName,
                 success = false,
                 textResult = response.text,
                 structuredResult = response.structuredJson,
@@ -250,13 +327,21 @@ class McpPipelineOrchestrator @Inject constructor(
         }
 
         return PipelineStepResult(
-            stepName = stepName,
-            toolName = toolName,
+            stepName = stepDef.stepName,
+            serverId = stepDef.serverId,
+            toolName = stepDef.toolName,
             success = true,
             textResult = response.text,
             structuredResult = response.structuredJson,
             errorMessage = null
         )
+    }
+
+    private fun extractIssuesJson(rawStructured: String?): String {
+        if (rawStructured.isNullOrBlank()) return "[]"
+        val root = runCatching { json.parseToJsonElement(rawStructured) }.getOrNull() as? JsonObject ?: return "[]"
+        val issues = root["issues"]
+        return issues?.toString() ?: "[]"
     }
 
     private fun parseArgs(argumentsJson: String): JsonObject {

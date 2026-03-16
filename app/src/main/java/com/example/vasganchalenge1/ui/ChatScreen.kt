@@ -156,6 +156,15 @@ fun ChatScreen(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                AgentToolingBlock(
+                    mode = state.toolWorkMode,
+                    activeToolServerLabel = state.activeToolServerLabel,
+                    activeToolName = state.activeToolName,
+                    activePipelineName = state.activePipelineName,
+                    activePipelineSteps = state.activePipelineSteps,
+                    recentToolActivities = state.recentToolActivities
+                )
+
                 state.error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                 }
@@ -199,7 +208,8 @@ fun ChatScreen(
             McpDebugHeader(
                 status = state.mcpConnectionStatus,
                 toolsCount = state.mcpToolsCount,
-                serverUrl = state.mcpServerUrl
+                serverUrl = state.mcpServerUrl,
+                servers = state.mcpServers
             )
             TaskDebugPanel(
                 taskState = state.taskStateDebug,
@@ -236,14 +246,75 @@ fun ChatScreen(
 private fun McpDebugHeader(
     status: String,
     toolsCount: Int,
-    serverUrl: String
+    serverUrl: String,
+    servers: List<McpServerDebugInfo>
 ) {
+    val connected = servers.count { it.status == "CONNECTED" }
+    val connectedText = if (servers.isEmpty()) "" else " • Connected: $connected/${servers.size}"
     Text(
-        text = "MCP: $status • Tools: $toolsCount" +
+        text = "MCP: $status • Tools: $toolsCount$connectedText" +
                 if (serverUrl.isNotBlank()) " • URL: $serverUrl" else "",
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         style = MaterialTheme.typography.bodySmall
     )
+}
+
+@Composable
+private fun AgentToolingBlock(
+    mode: ToolWorkMode,
+    activeToolServerLabel: String?,
+    activeToolName: String?,
+    activePipelineName: String?,
+    activePipelineSteps: List<PipelineStepDebugInfo>,
+    recentToolActivities: List<String>
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        tonalElevation = 1.dp,
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = when (mode) {
+                    ToolWorkMode.IDLE -> "Tools: idle"
+                    ToolWorkMode.TOOL_CALL_IN_PROGRESS -> "Tools: tool call in progress"
+                    ToolWorkMode.PIPELINE_IN_PROGRESS -> "Tools: pipeline in progress"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            if (mode == ToolWorkMode.TOOL_CALL_IN_PROGRESS && !activeToolName.isNullOrBlank()) {
+                Text(
+                    text = "Working with: [${activeToolServerLabel ?: "unknown"}] $activeToolName",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            if (mode == ToolWorkMode.PIPELINE_IN_PROGRESS && !activePipelineName.isNullOrBlank()) {
+                Text(
+                    text = "Pipeline: $activePipelineName",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                activePipelineSteps.forEach { step ->
+                    Text(
+                        text = "${step.index}. [${step.serverId}] ${step.toolName} ${step.status}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
+            if (recentToolActivities.isNotEmpty()) {
+                Text(
+                    text = "Recent: ${recentToolActivities.take(3).joinToString(" • ")}",
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+    }
 }
 
 @Composable

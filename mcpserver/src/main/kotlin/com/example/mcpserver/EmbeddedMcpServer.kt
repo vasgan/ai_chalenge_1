@@ -27,7 +27,8 @@ import java.nio.charset.StandardCharsets
 class EmbeddedMcpServer(
     private val host: String = "127.0.0.1",
     private val preferredPort: Int = 8787,
-    private val toolRegistry: GithubMcpToolRegistry = GithubMcpToolRegistry(),
+    private val serverName: String = "local-mcp",
+    private val toolRegistry: McpToolRegistry = GithubMcpToolRegistry(),
     moshi: Moshi = Moshi.Builder().build()
 ) {
     private val mapAdapter = moshi.adapter<Map<String, Any?>>(
@@ -257,7 +258,7 @@ class EmbeddedMcpServer(
                 get("/mcp") {
                     // Helps diagnose transport probing and keeps endpoint from 404 on GET.
                     call.respondText(
-                        text = "{\"status\":\"ok\",\"name\":\"local-github-mcp\"}",
+                        text = "{\"status\":\"ok\",\"name\":\"$serverName\"}",
                         status = HttpStatusCode.OK,
                         contentType = ContentType.Application.Json
                     )
@@ -311,10 +312,10 @@ class EmbeddedMcpServer(
                                     "tools" to mapOf("listChanged" to false)
                                 ),
                                 "serverInfo" to mapOf(
-                                    "name" to "local-github-mcp",
+                                    "name" to serverName,
                                     "version" to "1.0.0"
                                 ),
-                                "instructions" to "Local MCP server with GitHub tools."
+                                "instructions" to "Local MCP server."
                             )
                         )
 
@@ -398,7 +399,7 @@ class EmbeddedMcpServer(
             }
             val responseCode = connection.responseCode
             val body = connection.inputStream.bufferedReader().use { it.readText() }
-            responseCode == 200 && body.contains("\"name\":\"local-github-mcp\"")
+            responseCode == 200 && body.contains("\"name\":\"$serverName\"")
         }.getOrDefault(false)
     }
 }

@@ -1,10 +1,32 @@
 package com.example.vasganchalenge1.ui
 
-import com.example.vasganchalenge1.data.RunMetric
-import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.LongTermMode
 import com.example.vasganchalenge1.data.MemoryField
+import com.example.vasganchalenge1.data.RunMetric
+import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.taskfsm.TaskState
+
+enum class ToolWorkMode {
+    IDLE,
+    TOOL_CALL_IN_PROGRESS,
+    PIPELINE_IN_PROGRESS
+}
+
+data class McpServerDebugInfo(
+    val serverId: String,
+    val label: String,
+    val status: String,
+    val toolsCount: Int
+)
+
+data class PipelineStepDebugInfo(
+    val index: Int,
+    val stepName: String,
+    val serverId: String,
+    val toolName: String,
+    val status: String,
+    val message: String = ""
+)
 
 data class ChatUiState(
     val chatId: String = "",
@@ -28,6 +50,14 @@ data class ChatUiState(
     val mcpConnectionStatus: String = "DISCONNECTED",
     val mcpServerUrl: String = "",
     val mcpToolsCount: Int = 0,
+    val mcpServers: List<McpServerDebugInfo> = emptyList(),
+    val toolWorkMode: ToolWorkMode = ToolWorkMode.IDLE,
+    val activeToolServerId: String? = null,
+    val activeToolServerLabel: String? = null,
+    val activeToolName: String? = null,
+    val activePipelineName: String? = null,
+    val activePipelineSteps: List<PipelineStepDebugInfo> = emptyList(),
+    val recentToolActivities: List<String> = emptyList(),
     val input: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,

@@ -19,23 +19,31 @@ class NaturalLanguageToolRouterFallbackTest {
         McpTool(name = "github_get_user_stars_stats"),
         McpTool(name = "github_stop_user_stars_tracking"),
         McpTool(name = "github_get_user", requiredParams = listOf("username")),
-        McpTool(name = "summarize_github_user_profile", requiredParams = listOf("userJson")),
+        McpTool(name = "github_get_repo", requiredParams = listOf("owner", "repo")),
+        McpTool(name = "github_list_repo_issues", requiredParams = listOf("owner", "repo")),
+        McpTool(name = "summarize_github_report", requiredParams = listOf("userJson", "repoJson", "issuesJson")),
         McpTool(name = "save_summary_to_file", requiredParams = listOf("title", "summaryText", "rawJson"))
     )
     private val pipelines = listOf(
         McpPipelineDescriptor(
-            name = "github_user_summary_and_save",
+            name = "cross_server_github_report_flow",
             description = "pipeline",
-            requiredArgs = listOf("username"),
-            requiredTools = listOf("github_get_user", "summarize_github_user_profile", "save_summary_to_file"),
-            stepsSummary = listOf("github_get_user", "summarize_github_user_profile", "save_summary_to_file")
+            requiredArgs = listOf("username", "repo"),
+            requiredTools = listOf(
+                "github_get_user",
+                "github_get_repo",
+                "github_list_repo_issues",
+                "summarize_github_report",
+                "save_summary_to_file"
+            ),
+            steps = emptyList()
         ),
         McpPipelineDescriptor(
             name = "github_user_tracking_flow",
             description = "tracking pipeline",
             requiredArgs = listOf("username"),
             requiredTools = listOf("github_schedule_user_stars_tracking", "github_get_user_stars_stats"),
-            stepsSummary = listOf("github_schedule_user_stars_tracking", "github_get_user_stars_stats")
+            steps = emptyList()
         )
     )
 
@@ -105,15 +113,15 @@ class NaturalLanguageToolRouterFallbackTest {
         val router = NaturalLanguageToolRouter(noToolApi)
         val result = router.resolve(
             settings = AppSettings(),
-            userMessage = "Собери профиль пользователя octocat, сделай краткую сводку и сохрани результат",
+            userMessage = "Собери профиль пользователя octocat, репозиторий Hello-World, сделай краткую сводку и сохрани результат",
             availableTools = tools,
             availablePipelines = pipelines
         )
 
         assertTrue(result is ToolResolution.PipelineCall)
         result as ToolResolution.PipelineCall
-        assertEquals("github_user_summary_and_save", result.pipelineName)
-        assertEquals("{\"username\":\"octocat\"}", result.argumentsJson)
+        assertEquals("cross_server_github_report_flow", result.pipelineName)
+        assertEquals("{\"username\":\"octocat\",\"repo\":\"Hello-World\"}", result.argumentsJson)
     }
 
     @Test

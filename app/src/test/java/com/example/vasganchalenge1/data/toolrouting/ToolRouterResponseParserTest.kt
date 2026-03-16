@@ -27,7 +27,7 @@ class ToolRouterResponseParserTest {
             description = "pipeline",
             requiredArgs = listOf("username"),
             requiredTools = emptyList(),
-            stepsSummary = listOf("a", "b", "c")
+            steps = emptyList()
         )
     )
 

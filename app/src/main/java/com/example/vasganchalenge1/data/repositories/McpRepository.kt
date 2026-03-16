@@ -2,10 +2,12 @@ package com.example.vasganchalenge1.data.repositories
 
 import android.util.Log
 import com.example.mcpserver.GithubMcpToolRegistry
-import com.example.mcpserver.GithubTrackingTools
 import com.example.mcpserver.LocalMcpServerManager
 import com.example.mcpserver.LocalServerStatus
-import com.example.mcpserver.SummaryStorageTools
+import com.example.mcpserver.McpToolRegistry
+import com.example.mcpserver.UtilityMcpToolRegistry
+import com.example.vasganchalenge1.di.GithubServer
+import com.example.vasganchalenge1.di.UtilityServer
 import io.ktor.client.HttpClient
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
@@ -36,6 +38,9 @@ import javax.inject.Singleton
 
 private const val MCP_TIMEOUT_MS = 12_000L
 
+const val MCP_SERVER_ID_GITHUB = "github"
+const val MCP_SERVER_ID_UTILITY = "utility"
+
 enum class McpConnectionStatus {
     DISCONNECTED,
     CONNECTING,
@@ -47,178 +52,403 @@ data class McpTool(
     val name: String,
     val description: String = "",
     val inputSchemaJson: String = "",
-    val requiredParams: List<String> = emptyList()
+    val requiredParams: List<String> = emptyList(),
+    val serverId: String = "",
+    val serverLabel: String = ""
 )
 
 data class ToolResult(
     val text: String,
     val structuredJson: String? = null,
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    val serverId: String? = null,
+    val serverLabel: String? = null,
+    val toolName: String? = null
+)
+
+data class RegisteredMcpServer(
+    val serverId: String,
+    val label: String,
+    val url: String,
+    val isConnected: Boolean,
+    val isLocal: Boolean,
+    val connectionStatus: McpConnectionStatus,
+    val localServerStatus: LocalServerStatus,
+    val toolsCount: Int,
+    val error: String? = null
 )
 
 data class McpSharedState(
+    val servers: List<RegisteredMcpServer> = emptyList(),
+    val tools: List<McpTool> = emptyList(),
+    val error: String? = null,
+    // legacy fields for existing UI subscribers
     val serverUrl: String = "",
     val connectionStatus: McpConnectionStatus = McpConnectionStatus.DISCONNECTED,
-    val tools: List<McpTool> = emptyList(),
     val localServerStatus: LocalServerStatus = LocalServerStatus.STOPPED,
-    val localServerUrl: String = "",
-    val error: String? = null
+    val localServerUrl: String = ""
+)
+
+private data class LocalServerEndpoint(
+    val serverId: String,
+    val label: String,
+    val manager: LocalMcpServerManager,
+    val registry: McpToolRegistry
+)
+
+private data class ServerRuntime(
+    val serverId: String,
+    val label: String,
+    val isLocal: Boolean,
+    val url: String,
+    val connectionStatus: McpConnectionStatus,
+    val localServerStatus: LocalServerStatus,
+    val error: String?
 )
 
 @Singleton
 class McpRepository @Inject constructor(
     private val httpClient: HttpClient,
-    private val localServerManager: LocalMcpServerManager,
-    githubTrackingTools: GithubTrackingTools,
-    summaryStorageTools: SummaryStorageTools
+    @GithubServer private val githubLocalServerManager: LocalMcpServerManager,
+    @UtilityServer private val utilityLocalServerManager: LocalMcpServerManager,
+    @GithubServer githubRegistry: GithubMcpToolRegistry,
+    @UtilityServer utilityRegistry: UtilityMcpToolRegistry
 ) {
     private val tag = "McpRepository"
     private val json = Json { ignoreUnknownKeys = true }
-    private val localRegistry = GithubMcpToolRegistry(
-        githubTrackingTools = githubTrackingTools,
-        summaryStorageTools = summaryStorageTools
-    )
+
+    private val localEndpoints: Map<String, LocalServerEndpoint> = listOf(
+        LocalServerEndpoint(
+            serverId = MCP_SERVER_ID_GITHUB,
+            label = "GitHub Local MCP",
+            manager = githubLocalServerManager,
+            registry = githubRegistry
+        ),
+        LocalServerEndpoint(
+            serverId = MCP_SERVER_ID_UTILITY,
+            label = "Utility Local MCP",
+            manager = utilityLocalServerManager,
+            registry = utilityRegistry
+        )
+    ).associateBy { it.serverId }
+
+    private val runtimes: MutableMap<String, ServerRuntime> = mutableMapOf()
+    private val toolsByServer: MutableMap<String, List<McpTool>> = mutableMapOf()
+    private var globalError: String? = null
+    private var lastSelectedServerId: String? = null
 
     private val _state = MutableStateFlow(McpSharedState())
     val state: StateFlow<McpSharedState> = _state.asStateFlow()
 
-    suspend fun connect(serverUrl: String): Result<List<McpTool>> = runCatching {
-        val normalized = serverUrl.trim()
-        require(normalized.isNotBlank()) { "Server URL is empty" }
-
-        _state.value = _state.value.copy(
-            serverUrl = normalized,
-            connectionStatus = McpConnectionStatus.CONNECTING,
-            error = null
-        )
-
-        val tools = withTimeout(MCP_TIMEOUT_MS) {
-            if (isLocalServerUrl(normalized)) {
-                listToolsViaInProcess()
-            } else {
-                listToolsViaRemoteMcp(normalized)
-            }
+    init {
+        localEndpoints.values.forEach { endpoint ->
+            runtimes[endpoint.serverId] = ServerRuntime(
+                serverId = endpoint.serverId,
+                label = endpoint.label,
+                isLocal = true,
+                url = "",
+                connectionStatus = McpConnectionStatus.DISCONNECTED,
+                localServerStatus = LocalServerStatus.STOPPED,
+                error = null
+            )
         }
+        emitState()
+    }
 
-        _state.value = _state.value.copy(
-            serverUrl = normalized,
-            connectionStatus = McpConnectionStatus.CONNECTED,
-            tools = tools,
-            error = null
-        )
-
-        tools
-    }.onFailure { throwable ->
-        Log.e(tag, "connect failed. url=$serverUrl", throwable)
-        _state.value = _state.value.copy(
-            connectionStatus = McpConnectionStatus.ERROR,
-            error = throwable.message ?: "MCP connection error"
+    suspend fun connect(serverUrl: String): Result<List<McpTool>> {
+        return connectServer(
+            serverId = "remote_default",
+            label = "Remote MCP",
+            serverUrl = serverUrl,
+            isLocal = false
         )
     }
 
-    suspend fun connectLocal(): Result<List<McpTool>> = runCatching {
-        _state.value = _state.value.copy(
-            localServerStatus = LocalServerStatus.STARTING,
+    suspend fun connectServer(
+        serverId: String,
+        label: String,
+        serverUrl: String,
+        isLocal: Boolean
+    ): Result<List<McpTool>> = runCatching {
+        val normalizedId = serverId.trim().ifBlank { "remote_${System.currentTimeMillis()}" }
+        val normalizedUrl = serverUrl.trim()
+        require(normalizedUrl.isNotBlank()) { "Server URL is empty" }
+
+        val previous = runtimes[normalizedId]
+        val runtime = ServerRuntime(
+            serverId = normalizedId,
+            label = label.ifBlank { previous?.label ?: normalizedId },
+            isLocal = isLocal,
+            url = normalizedUrl,
             connectionStatus = McpConnectionStatus.CONNECTING,
+            localServerStatus = if (isLocal) LocalServerStatus.STARTING else LocalServerStatus.STOPPED,
+            error = null
+        )
+        runtimes[normalizedId] = runtime
+        globalError = null
+        emitState()
+
+        val tools = withTimeout(MCP_TIMEOUT_MS) {
+            listToolsViaRemoteMcp(
+                serverId = normalizedId,
+                serverLabel = runtime.label,
+                serverUrl = normalizedUrl
+            )
+        }
+
+        toolsByServer[normalizedId] = tools
+        lastSelectedServerId = normalizedId
+        runtimes[normalizedId] = runtime.copy(
+            connectionStatus = McpConnectionStatus.CONNECTED,
+            localServerStatus = if (isLocal) LocalServerStatus.RUNNING else LocalServerStatus.STOPPED,
+            error = null
+        )
+        emitState()
+        tools
+    }.onFailure { throwable ->
+        Log.e(tag, "connectServer failed. serverId=$serverId url=$serverUrl", throwable)
+        globalError = throwable.message ?: "MCP connection error"
+        val previous = runtimes[serverId]
+        if (previous != null) {
+            runtimes[serverId] = previous.copy(
+                connectionStatus = McpConnectionStatus.ERROR,
+                localServerStatus = if (previous.isLocal) LocalServerStatus.ERROR else previous.localServerStatus,
+                error = globalError
+            )
+        }
+        emitState()
+    }
+
+    suspend fun connectLocal(): Result<List<McpTool>> = connectLocal(MCP_SERVER_ID_GITHUB)
+
+    suspend fun connectLocal(serverId: String): Result<List<McpTool>> = runCatching {
+        val endpoint = localEndpoints[serverId]
+            ?: error("Unknown local MCP server: $serverId")
+
+        val current = runtimes[serverId] ?: ServerRuntime(
+            serverId = endpoint.serverId,
+            label = endpoint.label,
+            isLocal = true,
+            url = "",
+            connectionStatus = McpConnectionStatus.DISCONNECTED,
+            localServerStatus = LocalServerStatus.STOPPED,
             error = null
         )
 
-        val localUrl = withContext(Dispatchers.IO) { localServerManager.start() }
-        _state.value = _state.value.copy(
-            localServerStatus = LocalServerStatus.RUNNING,
-            localServerUrl = localUrl,
-            serverUrl = localUrl
+        runtimes[serverId] = current.copy(
+            connectionStatus = McpConnectionStatus.CONNECTING,
+            localServerStatus = LocalServerStatus.STARTING,
+            error = null
         )
+        globalError = null
+        emitState()
 
-        connect(localUrl).getOrThrow()
-    }.onFailure { throwable ->
-        Log.e(tag, "connectLocal failed", throwable)
-        _state.value = _state.value.copy(
-            localServerStatus = LocalServerStatus.ERROR,
-            connectionStatus = McpConnectionStatus.ERROR,
-            error = throwable.message ?: "Failed to start local MCP server"
+        val localUrl = withContext(Dispatchers.IO) { endpoint.manager.start() }
+        val tools = listToolsViaInProcess(endpoint.registry, endpoint.serverId, endpoint.label)
+
+        toolsByServer[serverId] = tools
+        lastSelectedServerId = serverId
+        runtimes[serverId] = current.copy(
+            url = localUrl,
+            connectionStatus = McpConnectionStatus.CONNECTED,
+            localServerStatus = LocalServerStatus.RUNNING,
+            error = null
         )
+        emitState()
+        tools
+    }.onFailure { throwable ->
+        Log.e(tag, "connectLocal failed. serverId=$serverId", throwable)
+        globalError = throwable.message ?: "Failed to start local MCP server"
+        val previous = runtimes[serverId]
+        if (previous != null) {
+            runtimes[serverId] = previous.copy(
+                connectionStatus = McpConnectionStatus.ERROR,
+                localServerStatus = LocalServerStatus.ERROR,
+                error = globalError
+            )
+        }
+        emitState()
     }
 
     fun disconnect() {
-        runCatching { localServerManager.stop() }
-        _state.value = _state.value.copy(
+        disconnectAll()
+    }
+
+    fun disconnectAll() {
+        runtimes.keys.toList().forEach(::disconnect)
+    }
+
+    fun disconnect(serverId: String) {
+        val runtime = runtimes[serverId] ?: return
+        if (runtime.isLocal) {
+            runCatching { localEndpoints[serverId]?.manager?.stop() }
+        }
+
+        toolsByServer.remove(serverId)
+        runtimes[serverId] = runtime.copy(
             connectionStatus = McpConnectionStatus.DISCONNECTED,
-            localServerStatus = LocalServerStatus.STOPPED,
-            tools = emptyList(),
+            localServerStatus = if (runtime.isLocal) LocalServerStatus.STOPPED else LocalServerStatus.STOPPED,
             error = null
         )
-    }
 
-    suspend fun listTools(): Result<List<McpTool>> = runCatching {
-        val current = _state.value
-        require(current.connectionStatus == McpConnectionStatus.CONNECTED) { "MCP не подключён" }
-
-        val tools = withTimeout(MCP_TIMEOUT_MS) {
-            if (isLocalServerUrl(current.serverUrl)) {
-                listToolsViaInProcess()
-            } else {
-                listToolsViaRemoteMcp(current.serverUrl)
-            }
+        if (lastSelectedServerId == serverId) {
+            lastSelectedServerId = runtimes.values.firstOrNull { it.connectionStatus == McpConnectionStatus.CONNECTED }?.serverId
         }
 
-        _state.value = _state.value.copy(tools = tools, error = null)
-        tools
+        globalError = null
+        emitState()
+    }
+
+    suspend fun listTools(): Result<List<McpTool>> {
+        return listTools(lastSelectedServerId)
+    }
+
+    suspend fun listTools(serverId: String?): Result<List<McpTool>> = runCatching {
+        val connectedRuntimes = runtimes.values.filter { it.connectionStatus == McpConnectionStatus.CONNECTED }
+        if (connectedRuntimes.isEmpty()) error("MCP не подключён")
+
+        if (serverId != null) {
+            val runtime = runtimes[serverId] ?: error("Сервер не найден: $serverId")
+            val tools = refreshTools(runtime)
+            toolsByServer[serverId] = tools
+            emitState()
+            return@runCatching tools
+        }
+
+        val refreshed = connectedRuntimes.flatMap { runtime ->
+            val tools = refreshTools(runtime)
+            toolsByServer[runtime.serverId] = tools
+            tools
+        }
+        emitState()
+        refreshed
     }.onFailure { throwable ->
-        Log.e(tag, "listTools failed", throwable)
-        _state.value = _state.value.copy(error = throwable.message ?: "listTools failed")
+        Log.e(tag, "listTools failed. serverId=$serverId", throwable)
+        globalError = throwable.message ?: "listTools failed"
+        emitState()
     }
 
-    suspend fun callTool(name: String, argumentsJson: String): Result<ToolResult> {
-        val current = _state.value
-        if (current.connectionStatus != McpConnectionStatus.CONNECTED) {
-            val message = "MCP не подключён"
-            _state.value = _state.value.copy(error = message)
+    suspend fun callTool(
+        name: String,
+        argumentsJson: String,
+        preferredServerId: String? = null
+    ): Result<ToolResult> {
+        val resolved = resolveToolServer(name = name, preferredServerId = preferredServerId)
+        if (resolved.isFailure) {
+            val message = resolved.exceptionOrNull()?.message ?: "Tool routing failed"
+            globalError = message
+            emitState()
             return Result.success(
                 ToolResult(
                     text = message,
                     structuredJson = """{"error":"$message"}""",
-                    isError = true
-                )
-            )
-        }
-        if (current.tools.isEmpty()) {
-            val message = "Нет доступных MCP tools"
-            _state.value = _state.value.copy(error = message)
-            return Result.success(
-                ToolResult(
-                    text = message,
-                    structuredJson = """{"error":"$message"}""",
-                    isError = true
+                    isError = true,
+                    toolName = name
                 )
             )
         }
 
+        val runtime = resolved.getOrThrow()
         return try {
             val args = parseArgumentsJson(argumentsJson)
             val toolResult = withTimeout(MCP_TIMEOUT_MS) {
-                if (isLocalServerUrl(current.serverUrl)) {
-                    callToolViaInProcess(name, args)
+                val localEndpoint = localEndpoints[runtime.serverId]
+                if (runtime.isLocal && localEndpoint != null) {
+                    callToolViaInProcess(
+                        registry = localEndpoint.registry,
+                        serverId = runtime.serverId,
+                        serverLabel = runtime.label,
+                        toolName = name,
+                        arguments = args
+                    )
                 } else {
-                    callToolViaRemoteMcp(current.serverUrl, name, args)
+                    callToolViaRemoteMcp(
+                        serverId = runtime.serverId,
+                        serverLabel = runtime.label,
+                        serverUrl = runtime.url,
+                        toolName = name,
+                        arguments = args
+                    )
                 }
             }
+
+            globalError = null
+            emitState()
             Result.success(toolResult)
         } catch (throwable: Throwable) {
-            Log.e(tag, "callTool failed. name=$name", throwable)
+            Log.e(tag, "callTool failed. name=$name serverId=${runtime.serverId}", throwable)
             val message = throwable.message ?: "Tool call failed"
-            _state.value = _state.value.copy(error = message)
+            globalError = message
+            emitState()
             Result.success(
                 ToolResult(
                     text = message,
                     structuredJson = """{"error":"$message"}""",
-                    isError = true
+                    isError = true,
+                    serverId = runtime.serverId,
+                    serverLabel = runtime.label,
+                    toolName = name
                 )
             )
         }
     }
 
-    private suspend fun listToolsViaRemoteMcp(serverUrl: String): List<McpTool> {
+    private suspend fun refreshTools(runtime: ServerRuntime): List<McpTool> {
+        if (runtime.connectionStatus != McpConnectionStatus.CONNECTED) {
+            error("Сервер ${runtime.label} не подключён")
+        }
+        val localEndpoint = localEndpoints[runtime.serverId]
+        return if (runtime.isLocal && localEndpoint != null) {
+            listToolsViaInProcess(localEndpoint.registry, runtime.serverId, runtime.label)
+        } else {
+            listToolsViaRemoteMcp(runtime.serverId, runtime.label, runtime.url)
+        }
+    }
+
+    private fun resolveToolServer(name: String, preferredServerId: String?): Result<ServerRuntime> {
+        val connectedRuntimes = runtimes.values.filter { it.connectionStatus == McpConnectionStatus.CONNECTED }
+        if (connectedRuntimes.isEmpty()) {
+            return Result.failure(IllegalArgumentException("MCP не подключён"))
+        }
+
+        if (preferredServerId != null) {
+            val runtime = runtimes[preferredServerId]
+                ?: return Result.failure(IllegalArgumentException("Сервер не найден: $preferredServerId"))
+            if (runtime.connectionStatus != McpConnectionStatus.CONNECTED) {
+                return Result.failure(IllegalArgumentException("Сервер не подключён: ${runtime.label}"))
+            }
+            val hasTool = toolsByServer[preferredServerId].orEmpty().any { it.name == name }
+            if (!hasTool) {
+                return Result.failure(
+                    IllegalArgumentException("Tool '$name' недоступен на сервере ${runtime.label}")
+                )
+            }
+            return Result.success(runtime)
+        }
+
+        val candidates = connectedRuntimes.filter { runtime ->
+            toolsByServer[runtime.serverId].orEmpty().any { it.name == name }
+        }
+
+        if (candidates.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Нет доступного tool: $name"))
+        }
+
+        if (candidates.size > 1) {
+            val serverIds = candidates.joinToString { it.serverId }
+            return Result.failure(
+                IllegalArgumentException("Tool '$name' доступен на нескольких серверах: $serverIds. Укажи serverId.")
+            )
+        }
+
+        return Result.success(candidates.first())
+    }
+
+    private suspend fun listToolsViaRemoteMcp(
+        serverId: String,
+        serverLabel: String,
+        serverUrl: String
+    ): List<McpTool> {
         val client = Client(
             clientInfo = Implementation(
                 name = "android-assistant",
@@ -238,12 +468,16 @@ class McpRepository @Inject constructor(
                 name = tool.name,
                 description = tool.description ?: "",
                 inputSchemaJson = schemaJson,
-                requiredParams = extractRequiredParams(schemaJson)
+                requiredParams = extractRequiredParams(schemaJson),
+                serverId = serverId,
+                serverLabel = serverLabel
             )
         }
     }
 
     private suspend fun callToolViaRemoteMcp(
+        serverId: String,
+        serverLabel: String,
         serverUrl: String,
         toolName: String,
         arguments: Map<String, Any?>
@@ -273,12 +507,19 @@ class McpRepository @Inject constructor(
         return ToolResult(
             text = text,
             structuredJson = result.structuredContent?.toString(),
-            isError = result.isError == true
+            isError = result.isError == true,
+            serverId = serverId,
+            serverLabel = serverLabel,
+            toolName = toolName
         )
     }
 
-    private fun listToolsViaInProcess(): List<McpTool> {
-        return localRegistry.listTools().mapNotNull { tool ->
+    private fun listToolsViaInProcess(
+        registry: McpToolRegistry,
+        serverId: String,
+        serverLabel: String
+    ): List<McpTool> {
+        return registry.listTools().mapNotNull { tool ->
             val name = tool["name"]?.toString().orEmpty().ifBlank { return@mapNotNull null }
             val description = tool["description"]?.toString().orEmpty()
             val schemaAny = tool["inputSchema"]
@@ -292,16 +533,21 @@ class McpRepository @Inject constructor(
                 name = name,
                 description = description,
                 inputSchemaJson = schemaJson,
-                requiredParams = required
+                requiredParams = required,
+                serverId = serverId,
+                serverLabel = serverLabel
             )
         }
     }
 
     private suspend fun callToolViaInProcess(
+        registry: McpToolRegistry,
+        serverId: String,
+        serverLabel: String,
         toolName: String,
         arguments: Map<String, Any?>
     ): ToolResult {
-        val result = localRegistry.callTool(toolName, arguments)
+        val result = registry.callTool(toolName, arguments)
         val content = result["content"] as? List<*> ?: emptyList<Any?>()
         val text = content.mapNotNull { block ->
             (block as? Map<*, *>)?.get("text")?.toString()
@@ -310,7 +556,10 @@ class McpRepository @Inject constructor(
         return ToolResult(
             text = text.ifBlank { result.toString() },
             structuredJson = result["structuredContent"]?.toJsonElement()?.toString(),
-            isError = result["isError"] as? Boolean ?: false
+            isError = result["isError"] as? Boolean ?: false,
+            serverId = serverId,
+            serverLabel = serverLabel,
+            toolName = toolName
         )
     }
 
@@ -335,11 +584,6 @@ class McpRepository @Inject constructor(
         }
     }
 
-    private fun isLocalServerUrl(serverUrl: String): Boolean {
-        val host = runCatching { java.net.URI(serverUrl).host?.lowercase() }.getOrNull()
-        return host == "127.0.0.1" || host == "localhost"
-    }
-
     private fun extractRequiredParams(schemaJson: String): List<String> {
         if (schemaJson.isBlank()) return emptyList()
         val schema = runCatching { json.parseToJsonElement(schemaJson) as? JsonObject }.getOrNull()
@@ -348,6 +592,51 @@ class McpRepository @Inject constructor(
         return required.mapNotNull { element ->
             runCatching { element.jsonPrimitive.content }.getOrNull()
         }
+    }
+
+    private fun emitState() {
+        val servers = runtimes.values
+            .sortedWith(compareBy<ServerRuntime> { !it.isLocal }.thenBy { it.serverId })
+            .map { runtime ->
+                RegisteredMcpServer(
+                    serverId = runtime.serverId,
+                    label = runtime.label,
+                    url = runtime.url,
+                    isConnected = runtime.connectionStatus == McpConnectionStatus.CONNECTED,
+                    isLocal = runtime.isLocal,
+                    connectionStatus = runtime.connectionStatus,
+                    localServerStatus = runtime.localServerStatus,
+                    toolsCount = toolsByServer[runtime.serverId].orEmpty().size,
+                    error = runtime.error
+                )
+            }
+
+        val tools = servers.flatMap { server ->
+            toolsByServer[server.serverId].orEmpty()
+        }.sortedWith(compareBy<McpTool> { it.serverLabel }.thenBy { it.name })
+
+        val aggregateStatus = when {
+            servers.any { it.connectionStatus == McpConnectionStatus.CONNECTED } -> McpConnectionStatus.CONNECTED
+            servers.any { it.connectionStatus == McpConnectionStatus.CONNECTING } -> McpConnectionStatus.CONNECTING
+            servers.any { it.connectionStatus == McpConnectionStatus.ERROR } -> McpConnectionStatus.ERROR
+            else -> McpConnectionStatus.DISCONNECTED
+        }
+
+        val selected = servers.firstOrNull { it.serverId == lastSelectedServerId }
+            ?: servers.firstOrNull { it.isConnected }
+            ?: servers.firstOrNull()
+
+        val githubServer = servers.firstOrNull { it.serverId == MCP_SERVER_ID_GITHUB }
+
+        _state.value = McpSharedState(
+            servers = servers,
+            tools = tools,
+            error = globalError,
+            serverUrl = selected?.url.orEmpty(),
+            connectionStatus = aggregateStatus,
+            localServerStatus = githubServer?.localServerStatus ?: LocalServerStatus.STOPPED,
+            localServerUrl = githubServer?.url.orEmpty()
+        )
     }
 }
 

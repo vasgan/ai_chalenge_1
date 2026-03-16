@@ -4,7 +4,8 @@ import com.example.vasganchalenge1.data.toolrouting.ToolResolution
 
 internal data class McpToolCommand(
     val name: String,
-    val argumentsJson: String
+    val argumentsJson: String,
+    val serverId: String? = null
 )
 
 internal data class McpPipelineCommand(
@@ -49,11 +50,15 @@ internal fun parseMcpToolCommand(input: String): McpToolCommand? {
     if (payload.isBlank()) return null
 
     val firstSpace = payload.indexOf(' ')
-    val toolName = if (firstSpace >= 0) payload.substring(0, firstSpace).trim() else payload
+    val rawToolName = if (firstSpace >= 0) payload.substring(0, firstSpace).trim() else payload
     val argsJson = if (firstSpace >= 0) payload.substring(firstSpace + 1).trim().ifBlank { "{}" } else "{}"
+    if (rawToolName.isBlank()) return null
+
+    val serverId = rawToolName.substringBefore(':').takeIf { rawToolName.contains(':') }?.trim()?.ifBlank { null }
+    val toolName = rawToolName.substringAfter(':', rawToolName).trim()
     if (toolName.isBlank()) return null
 
-    return McpToolCommand(name = toolName, argumentsJson = argsJson)
+    return McpToolCommand(name = toolName, argumentsJson = argsJson, serverId = serverId)
 }
 
 internal fun parseMcpPipelineCommand(input: String): McpPipelineCommand? {

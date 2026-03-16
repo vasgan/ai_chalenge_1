@@ -95,7 +95,15 @@ class ChatViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     mcpConnectionStatus = mcp.connectionStatus.name,
                     mcpServerUrl = mcp.serverUrl,
-                    mcpToolsCount = mcp.tools.size
+                    mcpToolsCount = mcp.tools.size,
+                    mcpServers = mcp.servers.map { server ->
+                        McpServerDebugInfo(
+                            serverId = server.serverId,
+                            label = server.label,
+                            status = server.connectionStatus.name,
+                            toolsCount = server.toolsCount
+                        )
+                    }
                 )
             }
         }
@@ -211,7 +219,8 @@ class ChatViewModel @Inject constructor(
                         rawText = text,
                         command = McpToolCommand(
                             name = resolution.toolName,
-                            argumentsJson = resolution.argumentsJson
+                            argumentsJson = resolution.argumentsJson,
+                            serverId = resolution.serverId
                         )
                     )
                 }
@@ -453,24 +462,45 @@ class ChatViewModel @Inject constructor(
     private fun onToolCommand(rawText: String, command: McpToolCommand) {
         val userMsg = UiChatMessage(role = Role.USER, text = rawText)
         val preMessagesRaw = _state.value.messages + userMsg
+        val matchedTool = mcpRepository.state.value.tools.firstOrNull { tool ->
+            tool.name == command.name && (command.serverId == null || tool.serverId == command.serverId)
+        }
         _state.value = _state.value.copy(
             input = "",
             isLoading = true,
             error = null,
-            messages = preMessagesRaw
+            messages = preMessagesRaw,
+            toolWorkMode = ToolWorkMode.TOOL_CALL_IN_PROGRESS,
+            activeToolName = command.name,
+            activeToolServerId = command.serverId ?: matchedTool?.serverId,
+            activeToolServerLabel = matchedTool?.serverLabel ?: command.serverId
         )
 
         viewModelScope.launch {
-            mcpRepository.callTool(command.name, command.argumentsJson)
+            mcpRepository.callTool(
+                name = command.name,
+                argumentsJson = command.argumentsJson,
+                preferredServerId = command.serverId
+            )
                 .onSuccess { result ->
                     val toolMsg = UiChatMessage(
                         role = Role.TOOL,
                         text = result.text.ifBlank { "Tool ${command.name} returned empty result" }
                     )
+                    val activity = buildToolActivity(
+                        serverLabel = result.serverLabel ?: matchedTool?.serverLabel ?: "unknown",
+                        toolName = result.toolName ?: command.name,
+                        success = !result.isError
+                    )
                     val updatedMessages = preMessagesRaw + toolMsg
                     _state.value = _state.value.copy(
                         isLoading = false,
-                        messages = updatedMessages
+                        messages = updatedMessages,
+                        toolWorkMode = ToolWorkMode.IDLE,
+                        activeToolName = null,
+                        activeToolServerId = null,
+                        activeToolServerLabel = null,
+                        recentToolActivities = (listOf(activity) + _state.value.recentToolActivities).take(10)
                     )
                     persistChat(
                         facts = _state.value.facts,
@@ -485,11 +515,21 @@ class ChatViewModel @Inject constructor(
                         role = Role.TOOL,
                         text = "Tool ${command.name} error: $errorText"
                     )
+                    val activity = buildToolActivity(
+                        serverLabel = matchedTool?.serverLabel ?: command.serverId ?: "unknown",
+                        toolName = command.name,
+                        success = false
+                    )
                     val updatedMessages = preMessagesRaw + toolMsg
                     _state.value = _state.value.copy(
                         isLoading = false,
                         error = errorText,
-                        messages = updatedMessages
+                        messages = updatedMessages,
+                        toolWorkMode = ToolWorkMode.IDLE,
+                        activeToolName = null,
+                        activeToolServerId = null,
+                        activeToolServerLabel = null,
+                        recentToolActivities = (listOf(activity) + _state.value.recentToolActivities).take(10)
                     )
                     persistChat(
                         facts = _state.value.facts,
@@ -504,16 +544,76 @@ class ChatViewModel @Inject constructor(
     private fun onPipelineCommand(rawText: String, command: McpPipelineCommand) {
         val userMsg = UiChatMessage(role = Role.USER, text = rawText)
         val preMessagesRaw = _state.value.messages + userMsg
+        val descriptor = pipelineOrchestrator.findPipeline(
+            pipelineName = command.name,
+            availableTools = mcpRepository.state.value.tools
+        )
         _state.value = _state.value.copy(
             input = "",
             isLoading = true,
             error = null,
-            messages = preMessagesRaw
+            messages = preMessagesRaw,
+            toolWorkMode = ToolWorkMode.PIPELINE_IN_PROGRESS,
+            activePipelineName = command.name,
+            activePipelineSteps = descriptor?.steps?.mapIndexed { index, step ->
+                PipelineStepDebugInfo(
+                    index = index + 1,
+                    stepName = step.stepName,
+                    serverId = step.serverId,
+                    toolName = step.toolName,
+                    status = if (index == 0) "RUNNING" else "PENDING"
+                )
+            }.orEmpty()
         )
 
         viewModelScope.launch {
             val pipelineResult = runCatching {
-                pipelineOrchestrator.execute(command.name, command.argumentsJson)
+                pipelineOrchestrator.execute(
+                    pipelineName = command.name,
+                    argumentsJson = command.argumentsJson,
+                    onProgress = { completedSteps ->
+                        val allSteps = descriptor?.steps.orEmpty()
+                        val progress = allSteps.mapIndexed { index, step ->
+                            val done = completedSteps.getOrNull(index)
+                            when {
+                                done != null && done.success -> PipelineStepDebugInfo(
+                                    index = index + 1,
+                                    stepName = step.stepName,
+                                    serverId = step.serverId,
+                                    toolName = step.toolName,
+                                    status = "DONE",
+                                    message = done.textResult.orEmpty()
+                                )
+
+                                done != null && !done.success -> PipelineStepDebugInfo(
+                                    index = index + 1,
+                                    stepName = step.stepName,
+                                    serverId = step.serverId,
+                                    toolName = step.toolName,
+                                    status = "ERROR",
+                                    message = done.errorMessage.orEmpty()
+                                )
+
+                                index == completedSteps.size -> PipelineStepDebugInfo(
+                                    index = index + 1,
+                                    stepName = step.stepName,
+                                    serverId = step.serverId,
+                                    toolName = step.toolName,
+                                    status = "RUNNING"
+                                )
+
+                                else -> PipelineStepDebugInfo(
+                                    index = index + 1,
+                                    stepName = step.stepName,
+                                    serverId = step.serverId,
+                                    toolName = step.toolName,
+                                    status = "PENDING"
+                                )
+                            }
+                        }
+                        _state.value = _state.value.copy(activePipelineSteps = progress)
+                    }
+                )
             }.getOrElse { throwable ->
                 PipelineExecutionResult(
                     success = false,
@@ -528,11 +628,22 @@ class ChatViewModel @Inject constructor(
                 role = Role.TOOL,
                 text = pipelineText
             )
+            val pipelineActivities = pipelineResult.steps.map { step ->
+                buildToolActivity(
+                    serverLabel = step.serverId,
+                    toolName = step.toolName,
+                    success = step.success
+                )
+            }
             val updatedMessages = preMessagesRaw + pipelineMsg
             _state.value = _state.value.copy(
                 isLoading = false,
                 error = if (pipelineResult.success) null else pipelineResult.finalMessage,
-                messages = updatedMessages
+                messages = updatedMessages,
+                toolWorkMode = ToolWorkMode.IDLE,
+                activePipelineName = null,
+                activePipelineSteps = emptyList(),
+                recentToolActivities = (pipelineActivities + _state.value.recentToolActivities).take(10)
             )
             persistChat(
                 facts = _state.value.facts,
@@ -552,7 +663,7 @@ class ChatViewModel @Inject constructor(
                 val body = step.textResult
                     ?: step.errorMessage
                     ?: "no output"
-                "$marker ${step.stepName} (${step.toolName}): $body"
+                "$marker ${step.stepName} ([${step.serverId}] ${step.toolName}): $body"
             }
         }
         return buildString {
@@ -560,6 +671,15 @@ class ChatViewModel @Inject constructor(
             append(stepsText)
             append("\n\nИтог: ${result.finalMessage}")
         }
+    }
+
+    private fun buildToolActivity(
+        serverLabel: String,
+        toolName: String,
+        success: Boolean
+    ): String {
+        val marker = if (success) "✅" else "❌"
+        return "$marker [$serverLabel] $toolName"
     }
 
     private fun dispatchTaskEvent(event: TaskEvent) {

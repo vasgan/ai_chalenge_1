@@ -157,8 +157,10 @@ fun AppNavGraph() {
                 state = state,
                 onBack = { navController.popBackStack() },
                 onServerUrlChange = vm::setServerUrl,
-                onConnect = { vm.connectAndLoadTools() },
-                onUseLocalMcp = vm::useLocalServerAndConnect,
+                onConnectRemote = { vm.connectAndLoadTools() },
+                onConnectGithubLocal = vm::connectGithubLocal,
+                onConnectUtilityLocal = vm::connectUtilityLocal,
+                onToggleServer = vm::toggleServer,
                 onCallGithubGetUser = vm::callGithubGetUser,
                 onCallGithubGetRepo = vm::callGithubGetRepo
             )

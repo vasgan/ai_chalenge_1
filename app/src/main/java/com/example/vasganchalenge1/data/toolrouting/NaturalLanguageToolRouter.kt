@@ -69,8 +69,8 @@ class NaturalLanguageToolRouter @Inject constructor(
     ): ToolResolution {
         val normalized = userMessage.lowercase()
         val userSummaryPipeline = availablePipelines.firstOrNull {
-            it.name == "github_user_summary_and_save"
-        }
+            it.name == "cross_server_github_report_flow"
+        } ?: availablePipelines.firstOrNull { it.name == "github_user_summary_and_save" }
         val trackingPipeline = availablePipelines.firstOrNull {
             it.name == "github_user_tracking_flow"
         }
@@ -81,11 +81,14 @@ class NaturalLanguageToolRouter @Inject constructor(
 
         if (userSummaryPipeline != null && isSummaryPipelineRequest(normalized)) {
             val username = extractUsername(userMessage)
-                ?: return ToolResolution.ClarificationNeeded("Уточни username GitHub для сводки профиля.")
+                ?: return ToolResolution.ClarificationNeeded("Уточни username GitHub для отчета.")
+            val repo = extractRepoName(userMessage)
+                ?: return ToolResolution.ClarificationNeeded("Уточни repo GitHub для отчета (owner/repo или имя repo).")
             return ToolResolution.PipelineCall(
                 pipelineName = userSummaryPipeline.name,
                 argumentsJson = buildJsonObject {
                     put("username", username)
+                    put("repo", repo)
                 }.toString()
             )
         }
@@ -110,7 +113,8 @@ class NaturalLanguageToolRouter @Inject constructor(
         if (stopTool != null && isStopTrackingRequest(normalized)) {
             return ToolResolution.ToolCall(
                 toolName = stopTool.name,
-                argumentsJson = "{}"
+                argumentsJson = "{}",
+                serverId = stopTool.serverId.ifBlank { null }
             )
         }
 
@@ -132,7 +136,8 @@ class NaturalLanguageToolRouter @Inject constructor(
             }
             return ToolResolution.ToolCall(
                 toolName = scheduleTool.name,
-                argumentsJson = args.toString()
+                argumentsJson = args.toString(),
+                serverId = scheduleTool.serverId.ifBlank { null }
             )
         }
 
@@ -150,7 +155,8 @@ class NaturalLanguageToolRouter @Inject constructor(
             }
             return ToolResolution.ToolCall(
                 toolName = statsTool.name,
-                argumentsJson = args.toString()
+                argumentsJson = args.toString(),
+                serverId = statsTool.serverId.ifBlank { null }
             )
         }
 
@@ -159,7 +165,8 @@ class NaturalLanguageToolRouter @Inject constructor(
             if (username != null) {
                 return ToolResolution.ToolCall(
                     toolName = userTool.name,
-                    argumentsJson = "{\"username\":\"$username\"}"
+                    argumentsJson = "{\"username\":\"$username\"}",
+                    serverId = userTool.serverId.ifBlank { null }
                 )
             }
             if (normalized.contains("пользовател")) {
@@ -175,12 +182,15 @@ class NaturalLanguageToolRouter @Inject constructor(
             normalized.contains("отчет") ||
             normalized.contains("отчёт") ||
             normalized.contains("суммир") ||
-            normalized.contains("summary")
+            normalized.contains("summary") ||
+            normalized.contains("report")
         val saveIntent = normalized.contains("сохрани") ||
-            normalized.contains("сохран")
+            normalized.contains("сохран") ||
+            normalized.contains("save")
         val profileContext = normalized.contains("профил") ||
             normalized.contains("пользовател") ||
-            normalized.contains("github")
+            normalized.contains("github") ||
+            normalized.contains("репозитор")
 
         return (summaryIntent && saveIntent && profileContext) ||
             (normalized.contains("получи") && normalized.contains("суммир") && saveIntent)
@@ -259,6 +269,21 @@ class NaturalLanguageToolRouter @Inject constructor(
 
         val regexByGithubProfileUrl = Regex(pattern = "(?i)github\\.com/([A-Za-z0-9-]{1,39})")
         return regexByGithubProfileUrl.find(text)?.groupValues?.getOrNull(1)
+    }
+
+    private fun extractRepoName(text: String): String? {
+        val ownerRepoRegex = Regex(
+            pattern = "(?i)([A-Za-z0-9_.-]{1,39})/([A-Za-z0-9_.-]{1,100})"
+        )
+        ownerRepoRegex.find(text)?.groupValues?.let { groups ->
+            if (groups.size >= 3) return groups[2]
+        }
+
+        val repoWordRegex = Regex(
+            pattern = "(?i)(?:repo|repository|репозитор(?:ий|ия|ию)?|репа)\\s+([A-Za-z0-9_.-]{1,100})"
+        )
+        repoWordRegex.find(text)?.groupValues?.getOrNull(1)?.let { return it }
+        return null
     }
 
     private fun extractIntervalSeconds(text: String): Int? {
