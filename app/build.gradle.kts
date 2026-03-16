@@ -108,4 +108,9 @@ dependencies {
     implementation("io.ktor:ktor-client-cio:3.1.1")
     implementation("io.ktor:ktor-client-okhttp:3.1.1")
     implementation("io.ktor:ktor-sse:3.1.1")
+
+    // RAG
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("com.google.mediapipe:tasks-text:latest.release")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
 }

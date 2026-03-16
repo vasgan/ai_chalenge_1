@@ -33,6 +33,7 @@ fun TaskListScreen(
     state: TaskListUiState,
     onBack: () -> Unit,
     onOpenProfileSettings: () -> Unit,
+    onOpenRag: () -> Unit,
     onOpenTask: (String) -> Unit,
     onCreateTask: (String) -> Unit
 ) {
@@ -82,6 +83,7 @@ fun TaskListScreen(
                     Text(state.profileTitle, style = MaterialTheme.typography.bodySmall)
                 }
                 Row {
+                    TextButton(onClick = onOpenRag) { Text("RAG") }
                     TextButton(onClick = onOpenProfileSettings) { Text("Профиль") }
                     TextButton(onClick = onBack) { Text("Назад") }
                     Button(onClick = { showDialog = true }) { Text("Новая задача") }

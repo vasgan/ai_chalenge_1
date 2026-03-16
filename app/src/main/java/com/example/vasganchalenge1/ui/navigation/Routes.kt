@@ -10,6 +10,7 @@ object Routes {
     const val Facts = "facts"
     const val Branches = "branches"
     const val McpServer = "mcp_server"
+    const val Rag = "rag"
 
     fun profileSettings(profileId: String) = "$ProfileSettings/$profileId"
     fun tasks(profileId: String) = "$Tasks/$profileId"

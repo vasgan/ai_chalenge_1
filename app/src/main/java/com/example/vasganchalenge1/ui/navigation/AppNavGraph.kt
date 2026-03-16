@@ -22,6 +22,7 @@ import com.example.vasganchalenge1.ui.profiles.ProfileSettingsScreen
 import com.example.vasganchalenge1.ui.profiles.ProfileSettingsViewModel
 import com.example.vasganchalenge1.ui.mcp.McpServerScreen
 import com.example.vasganchalenge1.ui.mcp.McpServerViewModel
+import com.example.vasganchalenge1.rag.presentation.RagRoute
 import com.example.vasganchalenge1.ui.settings.SettingsScreen
 import com.example.vasganchalenge1.ui.settings.SettingsViewModel
 import com.example.vasganchalenge1.ui.tasks.TaskListScreen
@@ -60,6 +61,7 @@ fun AppNavGraph() {
             TaskListScreen(
                 state = state,
                 onBack = { navController.popBackStack() },
+                onOpenRag = { navController.navigate(Routes.Rag) },
                 onOpenProfileSettings = {
                     navController.navigate(Routes.profileSettings(state.profileId))
                 },
@@ -72,6 +74,10 @@ fun AppNavGraph() {
                     }
                 }
             )
+        }
+
+        composable(Routes.Rag) {
+            RagRoute(onBack = { navController.popBackStack() })
         }
 
         composable(

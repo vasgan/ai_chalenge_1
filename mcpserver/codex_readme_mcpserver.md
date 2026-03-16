@@ -1,149 +1,117 @@
 # codex_readme_mcpserver
 
+Актуально для состояния проекта на **2026-03-16**.
+
 ## 1. Назначение модуля
-Модуль `mcpserver` — локальный embedded MCP-сервер, который запускается внутри Android-приложения и отдает GitHub tools через JSON-RPC endpoint `/mcp`.
+`mcpserver` — embedded MCP server runtime, который встраивается в Android-приложение и обслуживает MCP endpoint `/mcp`.
 
-Фактическая роль:
-- локально поднимает HTTP сервер на `127.0.0.1:{port}/mcp`,
-- реализует MCP-методы `initialize`, `tools/list`, `tools/call`,
-- проксирует вызовы инструментов к GitHub REST API.
+Текущая модель:
+- несколько независимых локальных серверов могут использовать один и тот же runtime-код,
+- конкретный набор tools задается через `McpToolRegistry`,
+- в `app` модуле поднимаются минимум два инстанса: `local-github-mcp` и `local-utility-mcp`.
 
----
+## 2. MCP поведение сервера
+- endpoint: `POST /mcp` и `GET /mcp` (health/debug).
+- JSON-RPC методы: `initialize`, `notifications/initialized`, `tools/list`, `tools/call`.
+- parse payload сделан устойчивым к нестандартным оберткам (urlencoded, NDJSON, `data:` и т.д.).
+- Возврат tool call в формате MCP (`content`, `structuredContent`, `isError`).
 
-## 2. Архитектура внутри модуля
-- `LocalMcpServerManager` — lifecycle-обертка для старта/остановки сервера.
-- `EmbeddedMcpServer` — HTTP/JSON-RPC сервер (Ktor CIO).
-- `GithubMcpToolRegistry` — реестр инструментов + вызов конкретного инструмента.
-- `GithubApiClient` — низкоуровневый клиент GitHub REST API.
+## 3. Разделение инструментов по registry
+### 3.1 `GithubMcpToolRegistry`
+Инструменты: `github_get_user`, `github_get_repo`, `github_list_repo_issues`, `github_schedule_user_stars_tracking`, `github_get_user_stars_stats`, `github_stop_user_stars_tracking`.
 
----
+### 3.2 `UtilityMcpToolRegistry`
+Инструменты: `summarize_github_report`, `save_summary_to_file` (плюс alias `summarize_github_user_profile`).
 
-## 3. Файлы, классы и методы
+## 4. Полный каталог классов и методов по файлам
+Ниже перечислены декларации из каждого Kotlin-файла `mcpserver/src/main/kotlin`.
 
-### `/mcpserver/src/main/kotlin/com/example/mcpserver/LocalMcpServerManager.kt`
+### `mcpserver/src/main/kotlin/com/example/mcpserver/EmbeddedMcpServer.kt`
+Embedded HTTP/JSON-RPC MCP сервер c endpoint /mcp.
 
-**Enum**: `LocalServerStatus`
-- `STOPPED`, `STARTING`, `RUNNING`, `ERROR`.
+- `L27`: `class EmbeddedMcpServer(`
+- `L47`: `fun start() {`
+- `L83`: `fun stop() {`
+- `L88`: `fun url(): String = "http://$host:$actualPort/mcp"`
+- `L90`: `private fun successResponse(id: Any?, result: Map<String, Any?>): String {`
+- `L100`: `private fun errorResponse(id: Any?, code: Int, message: String): String {`
+- `L113`: `private fun parseJsonRpcPayload(payloadText: String): Map<String, Any?>? {`
+- `L196`: `private fun parseFirstJsonValue(raw: String): Any? {`
+- `L204`: `private fun extractJsonObject(raw: String): String? {`
+- `L211`: `private fun extractFirstBalancedJsonObject(raw: String): String? {`
+- `L229`: `private fun logInfo(message: String) {`
+- `L233`: `private fun logError(message: String, throwable: Throwable? = null) {`
+- `L238`: `private fun isPortAvailable(port: Int): Boolean {`
+- `L246`: `private fun findEphemeralPort(): Int {`
+- `L255`: `private fun createServer(port: Int): EmbeddedServer<*, *> {`
+- `L384`: `private fun waitUntilEndpointReady(port: Int, timeoutMs: Long = 2_500L): Boolean {`
+- `L393`: `private fun isOurEndpointReady(port: Int): Boolean {`
 
-**Класс**: `LocalMcpServerManager`
-- Поля:
-  - `status` (volatile),
-  - `lastError` (volatile),
-  - `embeddedServer`.
+### `mcpserver/src/main/kotlin/com/example/mcpserver/GithubApiClient.kt`
+Клиент GitHub REST API.
 
-Методы:
-- `start(): String`
-  - переводит статус в `STARTING`,
-  - запускает `EmbeddedMcpServer`,
-  - на успехе: `RUNNING`, возвращает URL,
-  - на ошибке: `ERROR`, запоминает ошибку, пробрасывает исключение.
-- `stop()` — останавливает сервер, ставит `STOPPED`.
-- `status()` — возвращает текущий статус.
-- `lastError()` — возвращает последнюю ошибку.
-- `currentUrl()` — возвращает текущий URL endpoint.
+- `L11`: `class GithubApiClient(`
+- `L29`: `suspend fun getUser(username: String): Result<Map<String, Any?>> = runCatching {`
+- `L35`: `suspend fun getRepo(owner: String, repo: String): Result<Map<String, Any?>> = runCatching {`
+- `L41`: `suspend fun listRepoIssues(owner: String, repo: String): Result<List<Map<String, Any?>>> = runCatching {`
+- `L49`: `suspend fun listUserRepos(username: String): Result<List<Map<String, Any?>>> = runCatching {`
+- `L57`: `private fun applyDefaultHeaders(builder: io.ktor.client.request.HttpRequestBuilder) {`
 
----
+### `mcpserver/src/main/kotlin/com/example/mcpserver/GithubMcpToolRegistry.kt`
+Реестр GitHub/Tracking tools.
 
-### `/mcpserver/src/main/kotlin/com/example/mcpserver/GithubApiClient.kt`
+- `L5`: `class GithubMcpToolRegistry(`
+- `L9`: `override fun listTools(): List<Map<String, Any?>> = listOf(`
+- `L213`: `private fun successResult(text: String, structured: Any?): Map<String, Any?> {`
+- `L221`: `private fun errorResult(message: String): Map<String, Any?> {`
+- `L229`: `private fun parseNumber(value: Any?): Double? {`
 
-**Класс**: `GithubApiClient`
-- Использует Ktor `HttpClient` + Moshi adapters (`Map<String, Any?>`, `List<Map<...>>`).
+### `mcpserver/src/main/kotlin/com/example/mcpserver/GithubTrackingTools.kt`
+Контракт tracking-инструментов и noop-реализация.
 
-Методы:
-- `getUser(username)`
-  - GET `https://api.github.com/users/{username}`,
-  - возвращает `Result<Map<String, Any?>>`.
-- `getRepo(owner, repo)`
-  - GET `https://api.github.com/repos/{owner}/{repo}`,
-  - возвращает `Result<Map<String, Any?>>`.
-- `listRepoIssues(owner, repo)`
-  - GET `https://api.github.com/repos/{owner}/{repo}/issues?state=open&per_page=10`,
-  - возвращает `Result<List<Map<String, Any?>>>`.
+- `L3`: `data class TrackingToolResult(`
+- `L9`: `interface GithubTrackingTools {`
+- `L10`: `suspend fun scheduleUserMetricTracking(`
+- `L19`: `suspend fun getUserMetricStats(`
+- `L26`: `suspend fun stopUserMetricTracking(`
+- `L31`: `object NoopGithubTrackingTools : GithubTrackingTools {`
 
-Во всех запросах проставляются заголовки:
-- `Accept: application/vnd.github+json`
-- `User-Agent: android-local-mcp`
+### `mcpserver/src/main/kotlin/com/example/mcpserver/LocalMcpServerManager.kt`
+Lifecycle-обертка запуска/остановки embedded MCP сервера.
 
----
+- `L3`: `enum class LocalServerStatus {`
+- `L7`: `class LocalMcpServerManager(`
+- `L16`: `fun start(): String {`
+- `L30`: `fun stop() {`
+- `L35`: `fun status(): LocalServerStatus = status`
+- `L37`: `fun lastError(): String? = lastError`
+- `L39`: `fun currentUrl(): String = embeddedServer.url()`
 
-### `/mcpserver/src/main/kotlin/com/example/mcpserver/GithubMcpToolRegistry.kt`
+### `mcpserver/src/main/kotlin/com/example/mcpserver/McpToolRegistry.kt`
+Базовый интерфейс реестра MCP инструментов.
 
-**Класс**: `GithubMcpToolRegistry`
-- Отвечает за описание доступных tools и исполнение tool call.
+- `L3`: `interface McpToolRegistry {`
+- `L4`: `fun listTools(): List<Map<String, Any?>>`
+- `L5`: `suspend fun callTool(name: String, arguments: Map<String, Any?>): Map<String, Any?>`
 
-Методы:
-- `listTools(): List<Map<String, Any?>>`
-  - возвращает 3 инструмента:
-    1. `github_get_user`
-    2. `github_get_repo`
-    3. `github_list_repo_issues`
-  - включает `description` (на русском) и `inputSchema` (required params).
+### `mcpserver/src/main/kotlin/com/example/mcpserver/SummaryStorageTools.kt`
+Контракт сохранения summary и noop-реализация.
 
-- `callTool(name, arguments): Map<String, Any?>`
-  - dispatch по `name`:
-    - `github_get_user` (обязателен `username`),
-    - `github_get_repo` (обязательны `owner`, `repo`),
-    - `github_list_repo_issues` (обязательны `owner`, `repo`),
-  - на успех: возвращает MCP-совместимый результат `content + structuredContent + isError=false`,
-  - на ошибке: MCP error result `isError=true`.
+- `L3`: `interface SummaryStorageTools {`
+- `L4`: `suspend fun saveSummaryToFile(`
+- `L11`: `object NoopSummaryStorageTools : SummaryStorageTools {`
 
-Внутренние методы:
-- `successResult(text, structured)` — формирует успешный MCP payload.
-- `errorResult(message)` — формирует ошибочный MCP payload.
+### `mcpserver/src/main/kotlin/com/example/mcpserver/UtilityMcpToolRegistry.kt`
+Реестр utility tools (summary/save).
 
----
-
-### `/mcpserver/src/main/kotlin/com/example/mcpserver/EmbeddedMcpServer.kt`
-
-**Класс**: `EmbeddedMcpServer`
-- Основной сервер JSON-RPC/MCP.
-- По умолчанию host=`127.0.0.1`, preferred port=`8787`.
-- Если порт занят, пытается найти свободный ephemeral порт.
-
-Публичные методы:
-- `start()`
-  - стартует сервер,
-  - проверяет готовность endpoint,
-  - перебирает candidate ports,
-  - кидает `IllegalStateException`, если не удалось запустить.
-- `stop()` — останавливает engine.
-- `url()` — возвращает `http://{host}:{actualPort}/mcp`.
-
-Внутренние методы (JSON-RPC/utility):
-- `successResponse(id, result)` — JSON-RPC success envelope.
-- `errorResponse(id, code, message)` — JSON-RPC error envelope.
-- `parseJsonRpcPayload(payloadText)`
-  - устойчивый парсер payload,
-  - поддерживает сырые JSON, urlencoded payload/message, NDJSON, `data:`-обертки и извлечение первого JSON-объекта.
-- `parseFirstJsonValue(raw)` — lenient parsing через Moshi JsonReader.
-- `extractJsonObject(raw)` — грубое извлечение `{...}`.
-- `extractFirstBalancedJsonObject(raw)` — извлечение сбалансированного JSON-объекта.
-- `logInfo(message)`
-- `logError(message, throwable)`
-- `isPortAvailable(port)`
-- `findEphemeralPort()`
-- `createServer(port)`
-  - поднимает Ktor routing:
-    - `GET /mcp` — health/debug ответ,
-    - `POST /mcp` — обработка JSON-RPC:
-      - `initialize`
-      - `notifications/initialized`
-      - `tools/list`
-      - `tools/call`
-      - unknown method -> `-32601`.
-- `waitUntilEndpointReady(port, timeoutMs)`
-- `isOurEndpointReady(port)` — GET probe, проверяет что endpoint именно нашего MCP сервера.
-
----
-
-## 4. Полезные заметки
-
-1. Сервер возвращает HTTP 200 даже для JSON-RPC ошибок (ошибка в JSON body), что корректно для многих JSON-RPC клиентов.
-2. В `POST /mcp` есть подробное логирование входящих заголовков и payload-ошибок — удобно для диагностики transport проблем.
-3. `tools/call` ожидает `params.arguments` как объект map.
-4. Результат tool вызова всегда возвращается в MCP-формате:
-   - `content` (text blocks),
-   - `structuredContent` (структурированные данные),
-   - `isError`.
-5. Модуль собран на **Java/Kotlin 21**, что важно учитывать при интеграции с модулем `app` (Java 11).
+- `L6`: `class UtilityMcpToolRegistry(`
+- `L19`: `override fun listTools(): List<Map<String, Any?>> = listOf(`
+- `L145`: `private fun successResult(text: String, structured: Any?): Map<String, Any?> {`
+- `L153`: `private fun errorResult(message: String): Map<String, Any?> {`
+- `L161`: `private fun normalizeJsonObject(value: Any?): Map<String, Any?>? {`
+- `L171`: `private fun normalizeJsonArray(value: Any?): List<Map<String, Any?>>? {`
+- `L186`: `private fun parseJsonMap(raw: String): Map<String, Any?>? {`
+- `L193`: `private fun parseJsonArray(raw: String): List<Map<String, Any?>>? {`
+- `L206`: `private fun Any?.asText(): String = this?.toString().orEmpty()`
+- `L208`: `private fun Any?.asLong(): Long? {`
 
