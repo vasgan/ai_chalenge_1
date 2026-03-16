@@ -2,6 +2,7 @@ package com.example.vasganchalenge1.rag.domain.embedding
 
 import android.content.Context
 import android.util.Log
+import com.example.vasganchalenge1.rag.model.EmbeddingProviderType
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -27,15 +28,17 @@ class AiEdgeTextEmbeddingProvider @Inject constructor(
     private val mediapipeOptIn: Boolean by lazy { isMediapipeOptInEnabled() }
 
     @Volatile
-    override var engineName: String = "FallbackHashEmbedding"
+    override var modelName: String = "FallbackHashEmbedding"
         private set
+
+    override val providerType: EmbeddingProviderType = EmbeddingProviderType.LOCAL
 
     override suspend fun embed(texts: List<String>): List<FloatArray> = withContext(Dispatchers.Default) {
         if (texts.isEmpty()) return@withContext emptyList()
 
         val localEmbedder = ensureEmbedder()
         if (localEmbedder == null) {
-            engineName = "FallbackHashEmbedding"
+            modelName = "FallbackHashEmbedding"
             return@withContext texts.map { fallbackEmbedding(it) }
         }
 
@@ -57,7 +60,7 @@ class AiEdgeTextEmbeddingProvider @Inject constructor(
     private suspend fun ensureEmbedder(): Any? {
         if (!mediapipeOptIn) {
             mediapipeAvailable = false
-            engineName = "FallbackHashEmbedding"
+            modelName = "FallbackHashEmbedding"
             return null
         }
         if (!mediapipeAvailable) return null
@@ -89,7 +92,7 @@ class AiEdgeTextEmbeddingProvider @Inject constructor(
                     optionsClass
                 ).invoke(null, context, options)
 
-                engineName = "MediaPipeTextEmbedder"
+                modelName = "MediaPipeTextEmbedder"
                 created
             }.onFailure { throwable ->
                 mediapipeAvailable = false

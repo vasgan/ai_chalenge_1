@@ -77,7 +77,8 @@ data class RagIndexingResult(
     val builtAt: Long,
     val exportedJsonPath: String,
     val vectorsExportPath: String?,
-    val embeddingEngine: String
+    val embeddingProviderType: EmbeddingProviderType,
+    val embeddingModel: String
 )
 
 data class EmbeddedChunk(

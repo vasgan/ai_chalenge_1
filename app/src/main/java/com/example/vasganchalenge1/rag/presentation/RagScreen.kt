@@ -18,6 +18,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.vasganchalenge1.rag.model.EmbeddingProviderType
 
 @Composable
 fun RagRoute(
@@ -48,7 +51,8 @@ fun RagRoute(
         onBuildIndex = viewModel::buildIndex,
         onClearError = viewModel::clearError,
         onDeleteDocument = viewModel::deleteDocument,
-        onDeleteExport = viewModel::deleteExport
+        onDeleteExport = viewModel::deleteExport,
+        onSelectEmbeddingProvider = viewModel::setEmbeddingProvider
     )
 }
 
@@ -61,7 +65,8 @@ fun RagScreen(
     onBuildIndex: () -> Unit,
     onClearError: () -> Unit,
     onDeleteDocument: (String) -> Unit,
-    onDeleteExport: (String) -> Unit
+    onDeleteExport: (String) -> Unit,
+    onSelectEmbeddingProvider: (EmbeddingProviderType) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -111,6 +116,39 @@ fun RagScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text("Статус: $formattedStatus", style = MaterialTheme.typography.titleSmall)
+                        Text("Embedding provider", style = MaterialTheme.typography.titleSmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ProviderOption(
+                                title = "Local (Google AI Edge)",
+                                selected = state.selectedEmbeddingProvider == EmbeddingProviderType.LOCAL,
+                                onClick = { onSelectEmbeddingProvider(EmbeddingProviderType.LOCAL) }
+                            )
+                            ProviderOption(
+                                title = "OpenAI (Remote)",
+                                selected = state.selectedEmbeddingProvider == EmbeddingProviderType.OPENAI,
+                                onClick = { onSelectEmbeddingProvider(EmbeddingProviderType.OPENAI) }
+                            )
+                        }
+                        Text(
+                            text = when (state.selectedEmbeddingProvider) {
+                                EmbeddingProviderType.LOCAL -> "On-device active"
+                                EmbeddingProviderType.OPENAI -> {
+                                    if (state.openAiApiKeyConfigured) {
+                                        "API key configured"
+                                    } else {
+                                        "API key missing"
+                                    }
+                                }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (state.selectedEmbeddingProvider == EmbeddingProviderType.OPENAI &&
+                                !state.openAiApiKeyConfigured
+                            ) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = {
@@ -122,7 +160,11 @@ fun RagScreen(
                             }
                             Button(
                                 onClick = onBuildIndex,
-                                enabled = state.documents.isNotEmpty() && !state.isIndexing && !state.isImporting
+                                enabled = state.documents.isNotEmpty() &&
+                                    !state.isIndexing &&
+                                    !state.isImporting &&
+                                    (state.selectedEmbeddingProvider != EmbeddingProviderType.OPENAI ||
+                                        state.openAiApiKeyConfigured)
                             ) {
                                 Text(if (state.isIndexing) "Индексация..." else "Построить индекс")
                             }
@@ -145,7 +187,7 @@ fun RagScreen(
                 Text("Импортированные файлы", style = MaterialTheme.typography.titleMedium)
             }
 
-            items(state.documents, key = { it.id }) { document ->
+            items(state.documents, key = { "doc_${it.id}" }) { document ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
@@ -204,7 +246,8 @@ fun RagScreen(
                             Text("Fixed avg len: ${"%.2f".format(indexing.fixedAverageChunkLength)}")
                             Text("Structured avg len: ${"%.2f".format(indexing.structuredAverageChunkLength)}")
                             Text("Manifest: ${indexing.manifestId}")
-                            Text("Embedding engine: ${indexing.embeddingEngine}")
+                            Text("Provider: ${indexing.embeddingProviderType.name}")
+                            Text("Model: ${indexing.embeddingModel}")
                             Text("Report file: ${indexing.exportedJsonPath}")
                             if (!indexing.vectorsExportPath.isNullOrBlank()) {
                                 Text("Vectors file: ${indexing.vectorsExportPath}")
@@ -272,7 +315,7 @@ fun RagScreen(
                     Text("Per-document chunks", style = MaterialTheme.typography.titleSmall)
                 }
                 val docIds = (report.fixedStats.perDocumentChunkCount.keys + report.structuredStats.perDocumentChunkCount.keys).toSet().toList().sorted()
-                items(docIds, key = { it }) { docId ->
+                items(docIds, key = { "per_doc_$it" }) { docId ->
                     Surface(shape = RoundedCornerShape(10.dp), tonalElevation = 1.dp) {
                         Column(
                             modifier = Modifier
@@ -297,7 +340,7 @@ fun RagScreen(
                 Text("Экспортированные результаты (.txt)", style = MaterialTheme.typography.titleMedium)
             }
 
-            items(state.exports, key = { it.exportId }) { export ->
+            items(state.exports, key = { "export_${it.exportId}" }) { export ->
                 Surface(shape = RoundedCornerShape(12.dp), tonalElevation = 1.dp) {
                     Column(
                         modifier = Modifier
@@ -325,6 +368,18 @@ fun RagScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ProviderOption(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    OutlinedButton(onClick = onClick) {
+        RadioButton(selected = selected, onClick = null)
+        Text(title, modifier = Modifier.padding(start = 6.dp))
     }
 }
 

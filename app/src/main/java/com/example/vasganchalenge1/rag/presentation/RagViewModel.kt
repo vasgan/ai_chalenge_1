@@ -3,7 +3,10 @@ package com.example.vasganchalenge1.rag.presentation
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.vasganchalenge1.rag.data.settings.RagSettingsRepository
 import com.example.vasganchalenge1.rag.domain.RagIndexRepository
+import com.example.vasganchalenge1.rag.domain.embedding.EmbeddingProviderSelector
+import com.example.vasganchalenge1.rag.model.EmbeddingProviderType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,7 +16,9 @@ import javax.inject.Inject
 
 @HiltViewModel
 class RagViewModel @Inject constructor(
-    private val repository: RagIndexRepository
+    private val repository: RagIndexRepository,
+    private val settingsRepository: RagSettingsRepository,
+    private val embeddingProviderSelector: EmbeddingProviderSelector
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(RagUiState())
@@ -24,22 +29,33 @@ class RagViewModel @Inject constructor(
             combine(
                 repository.observeDocuments(),
                 repository.observeLatestReport(),
-                repository.observeExports()
-            ) { documents, report, exports ->
-                Triple(documents, report, exports)
-            }.collect { (documents, report, exports) ->
+                repository.observeExports(),
+                repository.observeLatestIndexingResult()
+            ) { documents, report, exports, latestIndexingResult ->
+                Quadruple(documents, report, exports, latestIndexingResult)
+            }.collect { (documents, report, exports, latestIndexingResult) ->
                 val current = _state.value
                 _state.value = current.copy(
                     documents = documents,
                     latestReport = report,
                     exports = exports,
+                    latestIndexingResult = latestIndexingResult,
                     status = deriveStatus(
                         isImporting = current.isImporting,
                         isIndexing = current.isIndexing,
                         hasDocuments = documents.isNotEmpty(),
-                        hasResult = current.latestIndexingResult != null,
+                        hasResult = latestIndexingResult != null,
                         hasError = current.error != null
                     )
+                )
+            }
+        }
+
+        viewModelScope.launch {
+            settingsRepository.selectedProviderFlow.collect { selected ->
+                _state.value = _state.value.copy(
+                    selectedEmbeddingProvider = selected,
+                    openAiApiKeyConfigured = embeddingProviderSelector.isOpenAiConfigured()
                 )
             }
         }
@@ -80,6 +96,17 @@ class RagViewModel @Inject constructor(
     }
 
     fun buildIndex() {
+        val selectedProvider = _state.value.selectedEmbeddingProvider
+        if (selectedProvider == EmbeddingProviderType.OPENAI &&
+            !_state.value.openAiApiKeyConfigured
+        ) {
+            _state.value = _state.value.copy(
+                error = "OpenAI API key не настроен. Добавьте OPENAI_API_KEY в gradle.properties",
+                status = RagScreenStatus.ERROR
+            )
+            return
+        }
+
         _state.value = _state.value.copy(
             isIndexing = true,
             error = null,
@@ -87,7 +114,7 @@ class RagViewModel @Inject constructor(
         )
 
         viewModelScope.launch {
-            repository.buildIndex()
+            repository.buildIndex(selectedProvider)
                 .onSuccess { result ->
                     _state.value = _state.value.copy(
                         isIndexing = false,
@@ -103,6 +130,12 @@ class RagViewModel @Inject constructor(
                         status = RagScreenStatus.ERROR
                     )
                 }
+        }
+    }
+
+    fun setEmbeddingProvider(type: EmbeddingProviderType) {
+        viewModelScope.launch {
+            settingsRepository.setSelectedProvider(type)
         }
     }
 
@@ -163,3 +196,10 @@ class RagViewModel @Inject constructor(
         }
     }
 }
+
+private data class Quadruple<A, B, C, D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
+)

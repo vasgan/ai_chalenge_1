@@ -14,7 +14,7 @@ import androidx.room.RoomDatabase
         ChunkingComparisonReportEntity::class,
         ExportedRagResultEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class RagDatabase : RoomDatabase() {

@@ -15,15 +15,18 @@ import com.example.vasganchalenge1.rag.data.local.RagIndexManifestEntity
 import com.example.vasganchalenge1.rag.domain.chunking.FixedSizeChunker
 import com.example.vasganchalenge1.rag.domain.chunking.StructuredChunker
 import com.example.vasganchalenge1.rag.domain.embedding.EmbeddingProvider
+import com.example.vasganchalenge1.rag.domain.embedding.EmbeddingProviderSelector
 import com.example.vasganchalenge1.rag.model.ChunkingComparisonReport
 import com.example.vasganchalenge1.rag.model.ChunkingStats
 import com.example.vasganchalenge1.rag.model.DocumentChunk
+import com.example.vasganchalenge1.rag.model.EmbeddingProviderType
 import com.example.vasganchalenge1.rag.model.RagDocumentFile
 import com.example.vasganchalenge1.rag.model.RagDocumentStatus
 import com.example.vasganchalenge1.rag.model.RagExportedResult
 import com.example.vasganchalenge1.rag.model.RagIndexingResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -45,7 +48,7 @@ class RagIndexRepository @Inject constructor(
     private val documentLoader: DocumentLoader,
     private val fixedSizeChunker: FixedSizeChunker,
     private val structuredChunker: StructuredChunker,
-    private val embeddingProvider: EmbeddingProvider,
+    private val embeddingProviderSelector: EmbeddingProviderSelector,
     private val comparisonService: ChunkingComparisonService,
     private val resultExporter: RagResultExporter
 ) {
@@ -69,6 +72,35 @@ class RagIndexRepository @Inject constructor(
                     createdAt = it.createdAt
                 )
             }
+        }
+    }
+
+    fun observeLatestIndexingResult(): Flow<RagIndexingResult?> {
+        return combine(
+            ragDao.observeLatestManifest(),
+            ragDao.observeExports()
+        ) { manifest, exports ->
+            if (manifest == null) {
+                return@combine null
+            }
+            val vectorsPath = exports.firstOrNull { entity ->
+                entity.manifestId == manifest.manifestId &&
+                    entity.fileName.startsWith("rag_vectors_")
+            }?.localPath
+
+            RagIndexingResult(
+                manifestId = manifest.manifestId,
+                documentsCount = manifest.documentsCount,
+                fixedChunksCount = manifest.fixedChunksCount,
+                structuredChunksCount = manifest.structuredChunksCount,
+                fixedAverageChunkLength = manifest.fixedAverageChunkLength,
+                structuredAverageChunkLength = manifest.structuredAverageChunkLength,
+                builtAt = manifest.builtAt,
+                exportedJsonPath = manifest.exportedJsonPath.orEmpty(),
+                vectorsExportPath = vectorsPath,
+                embeddingProviderType = EmbeddingProviderType.fromRaw(manifest.embeddingProviderType),
+                embeddingModel = manifest.embeddingModel
+            )
         }
     }
 
@@ -110,8 +142,9 @@ class RagIndexRepository @Inject constructor(
         }
     }
 
-    suspend fun buildIndex(): Result<RagIndexingResult> = runCatching {
+    suspend fun buildIndex(providerType: EmbeddingProviderType): Result<RagIndexingResult> = runCatching {
         withContext(Dispatchers.IO) {
+            val embeddingProvider = embeddingProviderSelector.get(providerType)
             val sourceEntities = ragDao.getAllDocuments()
                 .filter { it.status != RagDocumentStatus.ERROR.name }
 
@@ -154,7 +187,10 @@ class RagIndexRepository @Inject constructor(
             val allChunks = fixedChunks + structuredChunks
             require(allChunks.isNotEmpty()) { "Не удалось построить чанки" }
 
-            val embeddings = embedInBatches(allChunks.map { it.text })
+            val embeddings = embedInBatches(
+                texts = allChunks.map { it.text },
+                embeddingProvider = embeddingProvider
+            )
             require(embeddings.size == allChunks.size) { "Размер embeddings не совпадает с числом чанков" }
 
             val report = comparisonService.buildReport(
@@ -167,12 +203,16 @@ class RagIndexRepository @Inject constructor(
             val exportResult = resultExporter.export(
                 manifestId = manifestId,
                 documents = loaded.map { (entity, _) -> entity.toModel(statusOverride = RagDocumentStatus.INDEXED) },
-                report = report
+                report = report,
+                embeddingProviderType = embeddingProvider.providerType,
+                embeddingModel = embeddingProvider.modelName
             ).getOrThrow()
             val vectorsExportResult = resultExporter.exportVectors(
                 manifestId = manifestId,
                 chunks = allChunks,
-                embeddings = embeddings
+                embeddings = embeddings,
+                embeddingProviderType = embeddingProvider.providerType,
+                embeddingModel = embeddingProvider.modelName
             ).getOrThrow()
 
             ragDatabase.withTransaction {
@@ -186,7 +226,8 @@ class RagIndexRepository @Inject constructor(
                         fixedAverageChunkLength = report.fixedStats.averageChunkLength,
                         structuredAverageChunkLength = report.structuredStats.averageChunkLength,
                         exportedJsonPath = exportResult.localPath,
-                        embeddingEngine = embeddingProvider.engineName
+                        embeddingProviderType = embeddingProvider.providerType.name,
+                        embeddingModel = embeddingProvider.modelName
                     )
                 )
 
@@ -270,13 +311,15 @@ class RagIndexRepository @Inject constructor(
                 builtAt = builtAt,
                 exportedJsonPath = exportResult.localPath,
                 vectorsExportPath = vectorsExportResult.localPath,
-                embeddingEngine = embeddingProvider.engineName
+                embeddingProviderType = embeddingProvider.providerType,
+                embeddingModel = embeddingProvider.modelName
             )
         }
     }
 
     private suspend fun embedInBatches(
         texts: List<String>,
+        embeddingProvider: EmbeddingProvider,
         batchSize: Int = 16
     ): List<FloatArray> {
         val result = mutableListOf<FloatArray>()

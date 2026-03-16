@@ -38,6 +38,9 @@ interface RagDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertManifest(manifest: RagIndexManifestEntity)
 
+    @Query("SELECT * FROM rag_index_manifest ORDER BY builtAt DESC LIMIT 1")
+    fun observeLatestManifest(): Flow<RagIndexManifestEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChunks(chunks: List<IndexedChunkEntity>)
 

@@ -34,7 +34,8 @@ data class RagIndexManifestEntity(
     val fixedAverageChunkLength: Double,
     val structuredAverageChunkLength: Double,
     val exportedJsonPath: String?,
-    val embeddingEngine: String
+    val embeddingProviderType: String,
+    val embeddingModel: String
 )
 
 @Entity(

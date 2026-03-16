@@ -3,6 +3,7 @@ package com.example.vasganchalenge1.rag.domain
 import android.content.Context
 import com.example.vasganchalenge1.rag.model.ChunkingComparisonReport
 import com.example.vasganchalenge1.rag.model.DocumentChunk
+import com.example.vasganchalenge1.rag.model.EmbeddingProviderType
 import com.example.vasganchalenge1.rag.model.RagDocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +32,9 @@ class RagResultExporter @Inject constructor(
     suspend fun export(
         manifestId: String,
         documents: List<RagDocumentFile>,
-        report: ChunkingComparisonReport
+        report: ChunkingComparisonReport,
+        embeddingProviderType: EmbeddingProviderType,
+        embeddingModel: String
     ): Result<ExportResult> = runCatching {
         withContext(Dispatchers.IO) {
             val exportDir = File(context.filesDir, "rag/exports")
@@ -45,6 +48,8 @@ class RagResultExporter @Inject constructor(
             val payload = buildJsonObject {
                 put("manifestId", manifestId)
                 put("builtAt", report.builtAt)
+                put("embeddingProviderType", embeddingProviderType.name)
+                put("embeddingModel", embeddingModel)
                 put("documents", buildJsonArray {
                     documents.forEach { doc ->
                         add(buildJsonObject {
@@ -84,7 +89,9 @@ class RagResultExporter @Inject constructor(
     suspend fun exportVectors(
         manifestId: String,
         chunks: List<DocumentChunk>,
-        embeddings: List<FloatArray>
+        embeddings: List<FloatArray>,
+        embeddingProviderType: EmbeddingProviderType,
+        embeddingModel: String
     ): Result<ExportResult> = runCatching {
         withContext(Dispatchers.IO) {
             require(chunks.size == embeddings.size) {
@@ -102,6 +109,8 @@ class RagResultExporter @Inject constructor(
             val payload = buildJsonObject {
                 put("manifestId", manifestId)
                 put("generatedAt", System.currentTimeMillis())
+                put("embeddingProviderType", embeddingProviderType.name)
+                put("embeddingModel", embeddingModel)
                 put("chunksCount", chunks.size)
                 put("vectors", buildJsonArray {
                     chunks.zip(embeddings).forEach { (chunk, vector) ->

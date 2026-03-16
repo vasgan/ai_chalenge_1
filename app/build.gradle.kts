@@ -6,6 +6,12 @@ plugins {
     id("kotlin-kapt")
 }
 
+val openAiApiKey: String = (
+    project.findProperty("OPENAI_API_KEY") as String?
+        ?: System.getenv("OPENAI_API_KEY")
+        ?: ""
+    ).trim()
+
 android {
     namespace = "com.example.vasganchalenge1"
     compileSdk {
@@ -18,6 +24,10 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        val escapedKey = openAiApiKey
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        buildConfigField("String", "OPENAI_API_KEY", "\"$escapedKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -40,6 +50,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
