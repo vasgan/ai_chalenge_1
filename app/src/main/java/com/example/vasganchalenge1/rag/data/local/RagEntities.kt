@@ -106,3 +106,20 @@ data class ExportedRagResultEntity(
     val localPath: String,
     val createdAt: Long
 )
+
+@Entity(
+    tableName = "rag_control_questions",
+    indices = [
+        Index(value = ["indexId"]),
+        Index(value = ["updatedAt"])
+    ]
+)
+data class ControlQuestionEntity(
+    @PrimaryKey val id: String,
+    val indexId: String,
+    val question: String,
+    val expectation: String,
+    val expectedSourcesJson: String,
+    val createdAt: Long,
+    val updatedAt: Long
+)

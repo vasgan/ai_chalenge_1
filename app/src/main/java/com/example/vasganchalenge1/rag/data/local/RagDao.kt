@@ -24,6 +24,9 @@ interface RagDao {
     @Query("SELECT * FROM rag_documents WHERE id = :documentId LIMIT 1")
     suspend fun getDocument(documentId: String): RagDocumentEntity?
 
+    @Query("SELECT * FROM rag_documents WHERE id IN (:documentIds)")
+    suspend fun getDocumentsByIds(documentIds: List<String>): List<RagDocumentEntity>
+
     @Query("DELETE FROM rag_documents WHERE id = :documentId")
     suspend fun deleteDocument(documentId: String)
 
@@ -41,11 +44,20 @@ interface RagDao {
     @Query("SELECT * FROM rag_index_manifest ORDER BY builtAt DESC LIMIT 1")
     fun observeLatestManifest(): Flow<RagIndexManifestEntity?>
 
+    @Query("SELECT * FROM rag_index_manifest ORDER BY builtAt DESC LIMIT 1")
+    suspend fun getLatestManifest(): RagIndexManifestEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChunks(chunks: List<IndexedChunkEntity>)
 
+    @Query("SELECT * FROM rag_indexed_chunks WHERE manifestId = :manifestId")
+    suspend fun getChunksByManifest(manifestId: String): List<IndexedChunkEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEmbeddings(embeddings: List<ChunkEmbeddingEntity>)
+
+    @Query("SELECT * FROM rag_chunk_embeddings WHERE manifestId = :manifestId")
+    suspend fun getEmbeddingsByManifest(manifestId: String): List<ChunkEmbeddingEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertComparisonReport(report: ChunkingComparisonReportEntity)
@@ -67,4 +79,16 @@ interface RagDao {
 
     @Query("UPDATE rag_index_manifest SET exportedJsonPath = :exportedJsonPath WHERE manifestId = :manifestId")
     suspend fun updateManifestExportPath(manifestId: String, exportedJsonPath: String)
+
+    @Query("SELECT * FROM rag_control_questions WHERE indexId = :indexId ORDER BY updatedAt DESC")
+    fun observeControlQuestions(indexId: String): Flow<List<ControlQuestionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertControlQuestions(questions: List<ControlQuestionEntity>)
+
+    @Query("DELETE FROM rag_control_questions WHERE id = :questionId")
+    suspend fun deleteControlQuestion(questionId: String)
+
+    @Query("DELETE FROM rag_control_questions WHERE indexId = :indexId")
+    suspend fun deleteControlQuestionsByIndexId(indexId: String)
 }

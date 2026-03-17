@@ -11,6 +11,7 @@ object Routes {
     const val Branches = "branches"
     const val McpServer = "mcp_server"
     const val Rag = "rag"
+    const val ControlQuestions = "control_questions"
 
     fun profileSettings(profileId: String) = "$ProfileSettings/$profileId"
     fun tasks(profileId: String) = "$Tasks/$profileId"
@@ -20,4 +21,6 @@ object Routes {
     fun facts(chatId: String) = "$Facts/$chatId"
     fun branches(chatId: String) = "$Branches/$chatId"
     fun mcpServer(chatId: String) = "$McpServer/$chatId"
+    fun controlQuestions(mode: String, autoGenerate: Boolean = false) =
+        "$ControlQuestions/$mode?autoGenerate=$autoGenerate"
 }

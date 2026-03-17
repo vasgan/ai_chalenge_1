@@ -51,6 +51,7 @@ data class ChatUiState(
     val mcpServerUrl: String = "",
     val mcpToolsCount: Int = 0,
     val mcpServers: List<McpServerDebugInfo> = emptyList(),
+    val ragEnabled: Boolean = false,
     val toolWorkMode: ToolWorkMode = ToolWorkMode.IDLE,
     val activeToolServerId: String? = null,
     val activeToolServerLabel: String? = null,

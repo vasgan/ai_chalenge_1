@@ -12,9 +12,10 @@ import androidx.room.RoomDatabase
         IndexedChunkEntity::class,
         ChunkEmbeddingEntity::class,
         ChunkingComparisonReportEntity::class,
-        ExportedRagResultEntity::class
+        ExportedRagResultEntity::class,
+        ControlQuestionEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class RagDatabase : RoomDatabase() {

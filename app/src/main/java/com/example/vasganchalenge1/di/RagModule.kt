@@ -9,6 +9,8 @@ import com.example.vasganchalenge1.rag.domain.embedding.BuildConfigOpenAiApiKeyP
 import com.example.vasganchalenge1.rag.domain.embedding.EmbeddingProvider
 import com.example.vasganchalenge1.rag.domain.embedding.OpenAiApiKeyProvider
 import com.example.vasganchalenge1.rag.domain.embedding.OpenAIEmbeddingProvider
+import com.example.vasganchalenge1.rag.domain.retrieval.RagRetriever
+import com.example.vasganchalenge1.rag.domain.retrieval.RagRetrieverGateway
 import com.squareup.moshi.Moshi
 import dagger.Binds
 import dagger.Module
@@ -55,6 +57,12 @@ abstract class RagBindingModule {
     abstract fun bindOpenAiEmbeddingProvider(
         impl: OpenAIEmbeddingProvider
     ): EmbeddingProvider
+
+    @Binds
+    @Singleton
+    abstract fun bindRagRetrieverGateway(
+        impl: RagRetriever
+    ): RagRetrieverGateway
 }
 
 @Module

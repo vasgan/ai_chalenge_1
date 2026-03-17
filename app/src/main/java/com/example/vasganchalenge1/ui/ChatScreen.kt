@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FactCheck
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -72,6 +73,7 @@ fun MainRoute(
     onOpenFacts: () -> Unit,
     onOpenMcp: () -> Unit,
     onOpenBranches: () -> Unit,
+    onOpenControlQuestions: () -> Unit,
     onCreateBranch: (Long) -> Unit
 ) {
     val state = vm.state.collectAsState().value
@@ -84,7 +86,9 @@ fun MainRoute(
         onOpenFacts = onOpenFacts,
         onOpenMcp = onOpenMcp,
         onOpenBranches = onOpenBranches,
+        onOpenControlQuestions = onOpenControlQuestions,
         onCreateBranch = onCreateBranch,
+        onRagModeToggle = vm::onRagModeToggle,
         onPauseTask = vm::pauseTask,
         onResumeTask = vm::resumeTask,
         onCancelTask = vm::cancelTask,
@@ -102,7 +106,9 @@ fun ChatScreen(
     onOpenFacts: () -> Unit,
     onOpenMcp: () -> Unit,
     onOpenBranches: () -> Unit,
+    onOpenControlQuestions: () -> Unit,
     onCreateBranch: (Long) -> Unit,
+    onRagModeToggle: (Boolean) -> Unit,
     onPauseTask: () -> Unit,
     onResumeTask: () -> Unit,
     onCancelTask: () -> Unit,
@@ -139,6 +145,17 @@ fun ChatScreen(
                             imageVector = Icons.Filled.Dns,
                             contentDescription = "MCP Server"
                         )
+                    }
+                    if (state.ragEnabled) {
+                        IconButton(onClick = onOpenControlQuestions) {
+                            Icon(
+                                imageVector = Icons.Filled.HelpOutline,
+                                contentDescription = "Контрольные вопросы"
+                            )
+                        }
+                    }
+                    TextButton(onClick = { onRagModeToggle(!state.ragEnabled) }) {
+                        Text(if (state.ragEnabled) "RAG ON" else "RAG OFF")
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(
@@ -558,8 +575,31 @@ private fun ChatBubble(
                     style = MaterialTheme.typography.labelMedium,
                     color = textColor
                 )
+                if (msg.ragApplied && msg.role == Role.ASSISTANT) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "RAG",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
                 Spacer(Modifier.height(4.dp))
                 Text(msg.text, style = MaterialTheme.typography.bodyMedium, color = textColor)
+                if (msg.ragApplied && msg.ragSources.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Sources:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textColor
+                    )
+                    msg.ragSources.take(5).forEach { source ->
+                        Text(
+                            text = "• ${source.file}${source.section?.let { " / $it" } ?: ""}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textColor
+                        )
+                    }
+                }
                 if (isInvariantViolation) {
                     Spacer(Modifier.height(4.dp))
                     Text(

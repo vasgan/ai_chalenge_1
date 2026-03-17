@@ -143,11 +143,19 @@ data class Chat(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
+data class ChatMessageSource(
+    val chunkId: String,
+    val file: String,
+    val section: String? = null
+)
+
 data class UiChatMessage(
     val id: Long = nextUiChatMessageId(),
     val role: Role,
     val text: String,
-    val violatesInvariants: Boolean = false
+    val violatesInvariants: Boolean = false,
+    val ragApplied: Boolean = false,
+    val ragSources: List<ChatMessageSource> = emptyList()
 )
 
 enum class Role { USER, ASSISTANT, TOOL }

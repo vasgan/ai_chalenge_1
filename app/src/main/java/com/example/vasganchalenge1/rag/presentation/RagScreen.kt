@@ -41,6 +41,8 @@ import com.example.vasganchalenge1.rag.model.EmbeddingProviderType
 @Composable
 fun RagRoute(
     onBack: () -> Unit,
+    onOpenControlQuestions: () -> Unit,
+    onGenerateControlQuestions: () -> Unit,
     viewModel: RagViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -52,7 +54,9 @@ fun RagRoute(
         onClearError = viewModel::clearError,
         onDeleteDocument = viewModel::deleteDocument,
         onDeleteExport = viewModel::deleteExport,
-        onSelectEmbeddingProvider = viewModel::setEmbeddingProvider
+        onSelectEmbeddingProvider = viewModel::setEmbeddingProvider,
+        onOpenControlQuestions = onOpenControlQuestions,
+        onGenerateControlQuestions = onGenerateControlQuestions
     )
 }
 
@@ -66,7 +70,9 @@ fun RagScreen(
     onClearError: () -> Unit,
     onDeleteDocument: (String) -> Unit,
     onDeleteExport: (String) -> Unit,
-    onSelectEmbeddingProvider: (EmbeddingProviderType) -> Unit
+    onSelectEmbeddingProvider: (EmbeddingProviderType) -> Unit,
+    onOpenControlQuestions: () -> Unit,
+    onGenerateControlQuestions: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -167,6 +173,20 @@ fun RagScreen(
                                         state.openAiApiKeyConfigured)
                             ) {
                                 Text(if (state.isIndexing) "Индексация..." else "Построить индекс")
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = onOpenControlQuestions,
+                                enabled = !state.isImporting && !state.isIndexing
+                            ) {
+                                Text("Контрольные вопросы")
+                            }
+                            OutlinedButton(
+                                onClick = onGenerateControlQuestions,
+                                enabled = !state.isImporting && !state.isIndexing
+                            ) {
+                                Text("Сгенерировать контрольные вопросы")
                             }
                         }
                         state.error?.let { errorText ->

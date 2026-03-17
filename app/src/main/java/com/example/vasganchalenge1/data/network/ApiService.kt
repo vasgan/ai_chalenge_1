@@ -10,4 +10,9 @@ interface ApiService {
     suspend fun chatCompletion(
         @Body request: ChatRequest
     ): ChatResponse
+
+    @POST("v1/responses")
+    suspend fun responses(
+        @Body request: ResponsesRequest
+    ): ResponsesApiResponse
 }

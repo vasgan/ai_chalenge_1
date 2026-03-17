@@ -3,6 +3,7 @@ package com.example.vasganchalenge1.ui
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.vasganchalenge1.data.ChatMessageSource
 import com.example.vasganchalenge1.data.LongTermMemory
 import com.example.vasganchalenge1.data.LongTermMode
 import com.example.vasganchalenge1.data.MemoryField
@@ -20,6 +21,9 @@ import com.example.vasganchalenge1.data.repositories.LongTermMemoryManager
 import com.example.vasganchalenge1.data.repositories.McpRepository
 import com.example.vasganchalenge1.data.repositories.ValidationResult
 import com.example.vasganchalenge1.data.repositories.WorkingMemoryManager
+import com.example.vasganchalenge1.rag.data.settings.ChatRagSettingsRepository
+import com.example.vasganchalenge1.rag.domain.retrieval.RagChatContextUseCase
+import com.example.vasganchalenge1.rag.domain.retrieval.RagContextResult
 import com.example.vasganchalenge1.data.taskfsm.TaskEvent
 import com.example.vasganchalenge1.data.taskfsm.TaskFsmManager
 import com.example.vasganchalenge1.data.taskfsm.TaskPhase
@@ -45,6 +49,8 @@ class ChatViewModel @Inject constructor(
     private val workingMemoryManager: WorkingMemoryManager,
     private val longTermMemoryManager: LongTermMemoryManager,
     private val taskFsmManager: TaskFsmManager,
+    private val chatRagSettingsRepository: ChatRagSettingsRepository,
+    private val ragChatContextUseCase: RagChatContextUseCase,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val chatId: String = checkNotNull(savedStateHandle["chatId"])
@@ -107,10 +113,21 @@ class ChatViewModel @Inject constructor(
                 )
             }
         }
+        viewModelScope.launch {
+            chatRagSettingsRepository.observeRagEnabled(chatId).collect { enabled ->
+                _state.value = _state.value.copy(ragEnabled = enabled)
+            }
+        }
     }
 
     fun onInputChange(v: String) {
         _state.value = _state.value.copy(input = v, error = null)
+    }
+
+    fun onRagModeToggle(enabled: Boolean) {
+        viewModelScope.launch {
+            chatRagSettingsRepository.setRagEnabled(chatId, enabled)
+        }
     }
 
     fun createBranchFrom(messageId: Long, onDone: (String) -> Unit) {
@@ -313,6 +330,39 @@ class ChatViewModel @Inject constructor(
             )
             val workingContext = workingMemoryManager.buildWorkingContext(_state.value.taskId)
             val taskPhasePrompt = buildTaskPhasePrompt(_state.value.taskStateDebug)
+            val ragEnabled = _state.value.ragEnabled
+            var ragContextText = ""
+            var ragSources: List<ChatMessageSource> = emptyList()
+            if (ragEnabled) {
+                val contextResult = ragChatContextUseCase.build(text).getOrElse { throwable ->
+                    _state.value = _state.value.copy(
+                        error = "RAG retrieval error: ${throwable.message ?: "unknown error"}. Продолжаю без RAG."
+                    )
+                    RagContextResult.NoIndex
+                }
+                when (contextResult) {
+                    RagContextResult.NoIndex -> {
+                        _state.value = _state.value.copy(
+                            error = "RAG включен, но индекс не найден. Использую обычный режим."
+                        )
+                    }
+                    is RagContextResult.EmptyIndex -> {
+                        _state.value = _state.value.copy(
+                            error = "RAG индекс пуст (manifest=${contextResult.manifestId}). Использую обычный режим."
+                        )
+                    }
+                    is RagContextResult.Success -> {
+                        ragContextText = contextResult.context
+                        ragSources = contextResult.sources.map { source ->
+                            ChatMessageSource(
+                                chunkId = source.chunkId,
+                                file = source.file,
+                                section = source.section
+                            )
+                        }
+                    }
+                }
+            }
 
             runCatching {
                 repo.send(
@@ -328,7 +378,8 @@ class ChatViewModel @Inject constructor(
                     ),
                     invariants = _state.value.invariants,
                     workingContext = workingContext,
-                    taskPhasePrompt = taskPhasePrompt
+                    taskPhasePrompt = taskPhasePrompt,
+                    ragContext = ragContextText
                 )
             }.onSuccess { result ->
                 val latencyMs = android.os.SystemClock.elapsedRealtime() - start
@@ -355,7 +406,9 @@ class ChatViewModel @Inject constructor(
                 val assistantMsg = UiChatMessage(
                     role = Role.ASSISTANT,
                     text = assistantText,
-                    violatesInvariants = violatesInvariants
+                    violatesInvariants = violatesInvariants,
+                    ragApplied = ragContextText.isNotBlank(),
+                    ragSources = ragSources
                 )
                 val updatedMessagesRaw = preMessagesRaw + assistantMsg
                 runCatching {

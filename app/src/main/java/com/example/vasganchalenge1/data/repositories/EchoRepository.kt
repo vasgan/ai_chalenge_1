@@ -37,7 +37,8 @@ class EchoRepository  @Inject constructor(
         longTermMemoryJson: String,
         invariants: List<String>,
         workingContext: String,
-        taskPhasePrompt: String
+        taskPhasePrompt: String,
+        ragContext: String = ""
     ): DataResponse {
         val messages = mutableListOf<Message>()
         val systemParts = buildList {
@@ -60,6 +61,13 @@ class EchoRepository  @Inject constructor(
             }
             if (taskPhasePrompt.isNotBlank()) {
                 add(taskPhasePrompt)
+            }
+            if (ragContext.isNotBlank()) {
+                add(
+                    ragContext +
+                            "\nUse this retrieved context as primary evidence when relevant. " +
+                            "If context is insufficient, explicitly say what is missing."
+                )
             }
             if (settings.contextMode == ContextMode.FACTS && facts.isNotBlank()) {
                 add("Conversation facts from older messages:\n$facts")

@@ -23,6 +23,8 @@ import com.example.vasganchalenge1.ui.profiles.ProfileSettingsViewModel
 import com.example.vasganchalenge1.ui.mcp.McpServerScreen
 import com.example.vasganchalenge1.ui.mcp.McpServerViewModel
 import com.example.vasganchalenge1.rag.presentation.RagRoute
+import com.example.vasganchalenge1.rag.presentation.control.ControlQuestionsRoute
+import com.example.vasganchalenge1.rag.model.ControlQuestionsMode
 import com.example.vasganchalenge1.ui.settings.SettingsScreen
 import com.example.vasganchalenge1.ui.settings.SettingsViewModel
 import com.example.vasganchalenge1.ui.tasks.TaskListScreen
@@ -77,7 +79,35 @@ fun AppNavGraph() {
         }
 
         composable(Routes.Rag) {
-            RagRoute(onBack = { navController.popBackStack() })
+            RagRoute(
+                onBack = { navController.popBackStack() },
+                onOpenControlQuestions = {
+                    navController.navigate(
+                        Routes.controlQuestions(ControlQuestionsMode.EDITABLE.name)
+                    )
+                },
+                onGenerateControlQuestions = {
+                    navController.navigate(
+                        Routes.controlQuestions(
+                            mode = ControlQuestionsMode.EDITABLE.name,
+                            autoGenerate = true
+                        )
+                    )
+                }
+            )
+        }
+
+        composable(
+            route = "${Routes.ControlQuestions}/{mode}?autoGenerate={autoGenerate}",
+            arguments = listOf(
+                navArgument("mode") { type = NavType.StringType },
+                navArgument("autoGenerate") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            )
+        ) {
+            ControlQuestionsRoute(onBack = { navController.popBackStack() })
         }
 
         composable(
@@ -145,6 +175,12 @@ fun AppNavGraph() {
                 onOpenSettings = { navController.navigate(Routes.settings(state.chatId)) },
                 onOpenFacts = { navController.navigate(Routes.facts(state.chatId)) },
                 onOpenMcp = { navController.navigate(Routes.mcpServer(state.chatId)) },
+                onOpenControlQuestions = {
+                    navController.navigate(
+                        Routes.controlQuestions(ControlQuestionsMode.READ_ONLY.name)
+                    )
+                },
+                onRagModeToggle = vm::onRagModeToggle,
                 onPauseTask = vm::pauseTask,
                 onResumeTask = vm::resumeTask,
                 onCancelTask = vm::cancelTask,
