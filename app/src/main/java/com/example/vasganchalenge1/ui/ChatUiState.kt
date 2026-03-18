@@ -5,6 +5,7 @@ import com.example.vasganchalenge1.data.MemoryField
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
 import com.example.vasganchalenge1.data.taskfsm.TaskState
+import com.example.vasganchalenge1.rag.model.RagQualityMode
 
 enum class ToolWorkMode {
     IDLE,
@@ -52,6 +53,10 @@ data class ChatUiState(
     val mcpToolsCount: Int = 0,
     val mcpServers: List<McpServerDebugInfo> = emptyList(),
     val ragEnabled: Boolean = false,
+    val ragQualityMode: RagQualityMode = RagQualityMode.IMPROVED,
+    val ragTopKBefore: Int = 8,
+    val ragTopKAfter: Int = 4,
+    val ragSimilarityThreshold: Float = 0.55f,
     val toolWorkMode: ToolWorkMode = ToolWorkMode.IDLE,
     val activeToolServerId: String? = null,
     val activeToolServerLabel: String? = null,

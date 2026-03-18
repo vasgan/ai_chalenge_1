@@ -11,6 +11,10 @@ import com.example.vasganchalenge1.rag.domain.embedding.OpenAiApiKeyProvider
 import com.example.vasganchalenge1.rag.domain.embedding.OpenAIEmbeddingProvider
 import com.example.vasganchalenge1.rag.domain.retrieval.RagRetriever
 import com.example.vasganchalenge1.rag.domain.retrieval.RagRetrieverGateway
+import com.example.vasganchalenge1.rag.domain.retrieval.RagQueryRewriter
+import com.example.vasganchalenge1.rag.domain.retrieval.RagQueryRewriterGateway
+import com.example.vasganchalenge1.rag.domain.retrieval.RagRelevanceFilter
+import com.example.vasganchalenge1.rag.domain.retrieval.RagRelevanceFilterGateway
 import com.squareup.moshi.Moshi
 import dagger.Binds
 import dagger.Module
@@ -63,6 +67,18 @@ abstract class RagBindingModule {
     abstract fun bindRagRetrieverGateway(
         impl: RagRetriever
     ): RagRetrieverGateway
+
+    @Binds
+    @Singleton
+    abstract fun bindRagQueryRewriterGateway(
+        impl: RagQueryRewriter
+    ): RagQueryRewriterGateway
+
+    @Binds
+    @Singleton
+    abstract fun bindRagRelevanceFilterGateway(
+        impl: RagRelevanceFilter
+    ): RagRelevanceFilterGateway
 }
 
 @Module

@@ -155,7 +155,12 @@ data class UiChatMessage(
     val text: String,
     val violatesInvariants: Boolean = false,
     val ragApplied: Boolean = false,
-    val ragSources: List<ChatMessageSource> = emptyList()
+    val ragSources: List<ChatMessageSource> = emptyList(),
+    val ragRewrittenQuery: String? = null,
+    val ragTopKBefore: Int? = null,
+    val ragTopKAfter: Int? = null,
+    val ragSimilarityThreshold: Float? = null,
+    val ragMode: String? = null
 )
 
 enum class Role { USER, ASSISTANT, TOOL }

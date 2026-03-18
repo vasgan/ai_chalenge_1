@@ -105,6 +105,33 @@ class EchoRepository  @Inject constructor(
         )
     }
 
+    suspend fun rewriteRetrievalQuery(
+        settings: AppSettings,
+        userQuestion: String
+    ): String? {
+        val response = api.chatCompletion(
+            ChatRequest(
+                model = settings.model,
+                messages = listOf(
+                    Message(
+                        role = "system",
+                        content = "Rewrite the user question into a concise search query for retrieval over the local knowledge base. " +
+                                "Preserve meaning. Return only the rewritten query."
+                    ),
+                    Message(
+                        role = "user",
+                        content = userQuestion
+                    )
+                ),
+                stop = null,
+                max_tokens = 120,
+                temperature = 0.0
+            )
+        )
+        val raw = response.choices.firstOrNull()?.message?.content.orEmpty()
+        return normalizeRewriteOutput(raw)
+    }
+
     suspend fun extractFacts(
         currentFacts: String,
         chunk: List<UiChatMessage>,
@@ -450,6 +477,19 @@ private fun extractJsonObject(raw: String): String? {
     val end = raw.lastIndexOf('}')
     if (start < 0 || end <= start) return null
     return raw.substring(start, end + 1)
+}
+
+private fun normalizeRewriteOutput(raw: String): String? {
+    val cleaned = raw
+        .replace("```", "")
+        .trim()
+    if (cleaned.isBlank()) return null
+    val line = cleaned.lineSequence().firstOrNull { it.trim().isNotBlank() }?.trim().orEmpty()
+    return line
+        .removePrefix("\"")
+        .removeSuffix("\"")
+        .trim()
+        .ifBlank { null }
 }
 
 private fun stringList(value: Any?): List<String> {

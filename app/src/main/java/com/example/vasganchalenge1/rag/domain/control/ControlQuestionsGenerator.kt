@@ -96,25 +96,25 @@ class ControlQuestionsGenerator @Inject constructor(
 
     private fun buildUserPrompt(summary: ControlQuestionsKnowledgeSummary): String {
         return """
-            Generate 10 control questions for this indexed knowledge base.
+            Сгенерируй 10 контрольных вопросов для этой проиндексированной базы знаний.
 
-            Index ID: ${summary.indexId}
+            ID индекса: ${summary.indexId}
 
-            Documents summary:
+            Сводка по документам:
             ${summary.documentsSummary}
 
-            Sections summary:
+            Сводка по разделам:
             ${summary.sectionsSummary}
 
-            Key topics:
+            Ключевые темы:
             ${summary.topicsSummary}
 
-            Return JSON:
+            Верни JSON:
             {
               "questions": [
                 {
-                  "question": "...",
-                  "expectation": "...",
+                  "question": "Вопрос на русском языке",
+                  "expectation": "Краткое ожидаемое содержание ответа на русском языке",
                   "expectedSources": ["..."]
                 }
               ]
@@ -147,7 +147,9 @@ class ControlQuestionsGenerator @Inject constructor(
             Generate exactly 10 control questions.
 
             Language rule:
-            - question and expectation MUST be in Russian.
+            - question and expectation MUST be in Russian (Cyrillic).
+            - Do not use English for question/expectation.
+            - If source names are in English, keep them only in expectedSources.
             - Keep expectedSources as file/section references from the provided knowledge base.
 
             Each item must contain:

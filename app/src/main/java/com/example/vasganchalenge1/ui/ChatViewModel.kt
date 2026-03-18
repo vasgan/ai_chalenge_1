@@ -24,6 +24,8 @@ import com.example.vasganchalenge1.data.repositories.WorkingMemoryManager
 import com.example.vasganchalenge1.rag.data.settings.ChatRagSettingsRepository
 import com.example.vasganchalenge1.rag.domain.retrieval.RagChatContextUseCase
 import com.example.vasganchalenge1.rag.domain.retrieval.RagContextResult
+import com.example.vasganchalenge1.rag.model.RagQualityMode
+import com.example.vasganchalenge1.rag.model.RagRetrievalConfig
 import com.example.vasganchalenge1.data.taskfsm.TaskEvent
 import com.example.vasganchalenge1.data.taskfsm.TaskFsmManager
 import com.example.vasganchalenge1.data.taskfsm.TaskPhase
@@ -114,8 +116,14 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            chatRagSettingsRepository.observeRagEnabled(chatId).collect { enabled ->
-                _state.value = _state.value.copy(ragEnabled = enabled)
+            chatRagSettingsRepository.observeConfig(chatId).collect { config ->
+                _state.value = _state.value.copy(
+                    ragEnabled = config.enabled,
+                    ragQualityMode = config.retrievalConfig.mode,
+                    ragTopKBefore = config.retrievalConfig.topKBefore,
+                    ragTopKAfter = config.retrievalConfig.topKAfter,
+                    ragSimilarityThreshold = config.retrievalConfig.similarityThreshold
+                )
             }
         }
     }
@@ -127,6 +135,18 @@ class ChatViewModel @Inject constructor(
     fun onRagModeToggle(enabled: Boolean) {
         viewModelScope.launch {
             chatRagSettingsRepository.setRagEnabled(chatId, enabled)
+        }
+    }
+
+    fun onRagQualityModeToggle() {
+        viewModelScope.launch {
+            val currentMode = _state.value.ragQualityMode
+            val nextMode = if (currentMode == RagQualityMode.IMPROVED) {
+                RagQualityMode.BASELINE
+            } else {
+                RagQualityMode.IMPROVED
+            }
+            chatRagSettingsRepository.setQualityMode(chatId, nextMode)
         }
     }
 
@@ -333,8 +353,22 @@ class ChatViewModel @Inject constructor(
             val ragEnabled = _state.value.ragEnabled
             var ragContextText = ""
             var ragSources: List<ChatMessageSource> = emptyList()
+            var ragRewrittenQuery: String? = null
+            var ragTopKBefore: Int? = null
+            var ragTopKAfter: Int? = null
+            var ragSimilarityThreshold: Float? = null
+            var ragMode: String? = null
             if (ragEnabled) {
-                val contextResult = ragChatContextUseCase.build(text).getOrElse { throwable ->
+                val contextResult = ragChatContextUseCase.build(
+                    query = text,
+                    settings = currentSettings,
+                    config = RagRetrievalConfig(
+                        mode = _state.value.ragQualityMode,
+                        topKBefore = _state.value.ragTopKBefore,
+                        topKAfter = _state.value.ragTopKAfter,
+                        similarityThreshold = _state.value.ragSimilarityThreshold
+                    )
+                ).getOrElse { throwable ->
                     _state.value = _state.value.copy(
                         error = "RAG retrieval error: ${throwable.message ?: "unknown error"}. Продолжаю без RAG."
                     )
@@ -353,6 +387,11 @@ class ChatViewModel @Inject constructor(
                     }
                     is RagContextResult.Success -> {
                         ragContextText = contextResult.context
+                        ragRewrittenQuery = contextResult.metadata.rewrittenQuery
+                        ragTopKBefore = contextResult.metadata.topKBefore
+                        ragTopKAfter = contextResult.metadata.topKAfter
+                        ragSimilarityThreshold = contextResult.metadata.similarityThreshold
+                        ragMode = contextResult.metadata.mode.name
                         ragSources = contextResult.sources.map { source ->
                             ChatMessageSource(
                                 chunkId = source.chunkId,
@@ -408,7 +447,12 @@ class ChatViewModel @Inject constructor(
                     text = assistantText,
                     violatesInvariants = violatesInvariants,
                     ragApplied = ragContextText.isNotBlank(),
-                    ragSources = ragSources
+                    ragSources = ragSources,
+                    ragRewrittenQuery = ragRewrittenQuery,
+                    ragTopKBefore = ragTopKBefore,
+                    ragTopKAfter = ragTopKAfter,
+                    ragSimilarityThreshold = ragSimilarityThreshold,
+                    ragMode = ragMode
                 )
                 val updatedMessagesRaw = preMessagesRaw + assistantMsg
                 runCatching {

@@ -61,6 +61,7 @@ import com.example.vasganchalenge1.data.taskfsm.ExpectedAction
 import com.example.vasganchalenge1.data.taskfsm.TaskPhase
 import com.example.vasganchalenge1.data.taskfsm.TaskState
 import com.example.vasganchalenge1.data.taskfsm.TaskStep
+import com.example.vasganchalenge1.rag.model.RagQualityMode
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -89,6 +90,7 @@ fun MainRoute(
         onOpenControlQuestions = onOpenControlQuestions,
         onCreateBranch = onCreateBranch,
         onRagModeToggle = vm::onRagModeToggle,
+        onRagQualityModeToggle = vm::onRagQualityModeToggle,
         onPauseTask = vm::pauseTask,
         onResumeTask = vm::resumeTask,
         onCancelTask = vm::cancelTask,
@@ -109,6 +111,7 @@ fun ChatScreen(
     onOpenControlQuestions: () -> Unit,
     onCreateBranch: (Long) -> Unit,
     onRagModeToggle: (Boolean) -> Unit,
+    onRagQualityModeToggle: () -> Unit,
     onPauseTask: () -> Unit,
     onResumeTask: () -> Unit,
     onCancelTask: () -> Unit,
@@ -228,6 +231,12 @@ fun ChatScreen(
                 serverUrl = state.mcpServerUrl,
                 servers = state.mcpServers
             )
+            if (state.ragEnabled) {
+                RagQualityHeader(
+                    mode = state.ragQualityMode,
+                    onToggle = onRagQualityModeToggle
+                )
+            }
             TaskDebugPanel(
                 taskState = state.taskStateDebug,
                 onPauseTask = onPauseTask,
@@ -256,6 +265,37 @@ fun ChatScreen(
                 item { Spacer(Modifier.height(60.dp)) }
             }
         }
+    }
+}
+
+@Composable
+private fun RagQualityHeader(
+    mode: RagQualityMode,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Фильтр релевантности:",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        TextButton(onClick = onToggle) {
+            Text(if (mode == RagQualityMode.IMPROVED) "ON" else "OFF")
+        }
+        Text(
+            text = if (mode == RagQualityMode.IMPROVED) {
+                "Improved (rewrite + filter)"
+            } else {
+                "Baseline (без фильтра)"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -596,6 +636,24 @@ private fun ChatBubble(
                         Text(
                             text = "• ${source.file}${source.section?.let { " / $it" } ?: ""}",
                             style = MaterialTheme.typography.bodySmall,
+                            color = textColor
+                        )
+                    }
+                }
+                if (msg.ragApplied) {
+                    val debugItems = buildList {
+                        msg.ragMode?.let { add("mode=$it") }
+                        msg.ragRewrittenQuery?.takeIf { it.isNotBlank() }?.let { add("rewrite=\"$it\"") }
+                        if (msg.ragTopKBefore != null || msg.ragTopKAfter != null) {
+                            add("topK ${msg.ragTopKBefore ?: "-"} -> ${msg.ragTopKAfter ?: "-"}")
+                        }
+                        msg.ragSimilarityThreshold?.let { add("threshold=${"%.2f".format(it)}") }
+                    }
+                    if (debugItems.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = debugItems.joinToString(" • "),
+                            style = MaterialTheme.typography.labelSmall,
                             color = textColor
                         )
                     }

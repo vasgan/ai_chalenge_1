@@ -181,6 +181,7 @@ fun AppNavGraph() {
                     )
                 },
                 onRagModeToggle = vm::onRagModeToggle,
+                onRagQualityModeToggle = vm::onRagQualityModeToggle,
                 onPauseTask = vm::pauseTask,
                 onResumeTask = vm::resumeTask,
                 onCancelTask = vm::cancelTask,
