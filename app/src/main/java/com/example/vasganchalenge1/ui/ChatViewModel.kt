@@ -40,6 +40,11 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val FACTS_CHUNK_SIZE = 20
+private const val RAG_THRESHOLD_STEP = 0.05f
+private const val RAG_THRESHOLD_MIN = 0f
+private const val RAG_THRESHOLD_MAX = 1f
+private const val RAG_TOPK_BEFORE_MAX = 20
+private const val RAG_TOPK_AFTER_MAX = 10
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -147,6 +152,58 @@ class ChatViewModel @Inject constructor(
                 RagQualityMode.IMPROVED
             }
             chatRagSettingsRepository.setQualityMode(chatId, nextMode)
+        }
+    }
+
+    fun onIncreaseRagThreshold() {
+        viewModelScope.launch {
+            val next = (_state.value.ragSimilarityThreshold + RAG_THRESHOLD_STEP)
+                .coerceIn(RAG_THRESHOLD_MIN, RAG_THRESHOLD_MAX)
+            chatRagSettingsRepository.setSimilarityThreshold(chatId, next)
+        }
+    }
+
+    fun onDecreaseRagThreshold() {
+        viewModelScope.launch {
+            val next = (_state.value.ragSimilarityThreshold - RAG_THRESHOLD_STEP)
+                .coerceIn(RAG_THRESHOLD_MIN, RAG_THRESHOLD_MAX)
+            chatRagSettingsRepository.setSimilarityThreshold(chatId, next)
+        }
+    }
+
+    fun onIncreaseRagTopKBefore() {
+        viewModelScope.launch {
+            val current = _state.value
+            val nextBefore = (current.ragTopKBefore + 1).coerceAtMost(RAG_TOPK_BEFORE_MAX)
+            chatRagSettingsRepository.setTopKBefore(chatId, nextBefore)
+        }
+    }
+
+    fun onDecreaseRagTopKBefore() {
+        viewModelScope.launch {
+            val current = _state.value
+            val nextBefore = (current.ragTopKBefore - 1).coerceAtLeast(1)
+            chatRagSettingsRepository.setTopKBefore(chatId, nextBefore)
+            if (current.ragTopKAfter > nextBefore) {
+                chatRagSettingsRepository.setTopKAfter(chatId, nextBefore)
+            }
+        }
+    }
+
+    fun onIncreaseRagTopKAfter() {
+        viewModelScope.launch {
+            val current = _state.value
+            val maxAllowed = current.ragTopKBefore.coerceAtLeast(1).coerceAtMost(RAG_TOPK_AFTER_MAX)
+            val nextAfter = (current.ragTopKAfter + 1).coerceAtMost(maxAllowed)
+            chatRagSettingsRepository.setTopKAfter(chatId, nextAfter)
+        }
+    }
+
+    fun onDecreaseRagTopKAfter() {
+        viewModelScope.launch {
+            val current = _state.value
+            val nextAfter = (current.ragTopKAfter - 1).coerceAtLeast(1)
+            chatRagSettingsRepository.setTopKAfter(chatId, nextAfter)
         }
     }
 

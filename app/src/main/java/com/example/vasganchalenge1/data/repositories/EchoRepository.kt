@@ -66,7 +66,11 @@ class EchoRepository  @Inject constructor(
                 add(
                     ragContext +
                             "\nUse this retrieved context as primary evidence when relevant. " +
-                            "If context is insufficient, explicitly say what is missing."
+                            "If context is insufficient, explicitly say what is missing.\n" +
+                            "When you use any fact from RAG context, add inline citations like [1], [2] " +
+                            "that reference [source N] blocks.\n" +
+                            "Use only existing source numbers from the provided RAG context.\n" +
+                            "Do not invent citations."
                 )
             }
             if (settings.contextMode == ContextMode.FACTS && facts.isNotBlank()) {

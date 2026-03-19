@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallSplit
@@ -43,14 +44,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -91,6 +97,12 @@ fun MainRoute(
         onCreateBranch = onCreateBranch,
         onRagModeToggle = vm::onRagModeToggle,
         onRagQualityModeToggle = vm::onRagQualityModeToggle,
+        onIncreaseRagThreshold = vm::onIncreaseRagThreshold,
+        onDecreaseRagThreshold = vm::onDecreaseRagThreshold,
+        onIncreaseRagTopKBefore = vm::onIncreaseRagTopKBefore,
+        onDecreaseRagTopKBefore = vm::onDecreaseRagTopKBefore,
+        onIncreaseRagTopKAfter = vm::onIncreaseRagTopKAfter,
+        onDecreaseRagTopKAfter = vm::onDecreaseRagTopKAfter,
         onPauseTask = vm::pauseTask,
         onResumeTask = vm::resumeTask,
         onCancelTask = vm::cancelTask,
@@ -112,6 +124,12 @@ fun ChatScreen(
     onCreateBranch: (Long) -> Unit,
     onRagModeToggle: (Boolean) -> Unit,
     onRagQualityModeToggle: () -> Unit,
+    onIncreaseRagThreshold: () -> Unit,
+    onDecreaseRagThreshold: () -> Unit,
+    onIncreaseRagTopKBefore: () -> Unit,
+    onDecreaseRagTopKBefore: () -> Unit,
+    onIncreaseRagTopKAfter: () -> Unit,
+    onDecreaseRagTopKAfter: () -> Unit,
     onPauseTask: () -> Unit,
     onResumeTask: () -> Unit,
     onCancelTask: () -> Unit,
@@ -234,7 +252,16 @@ fun ChatScreen(
             if (state.ragEnabled) {
                 RagQualityHeader(
                     mode = state.ragQualityMode,
-                    onToggle = onRagQualityModeToggle
+                    threshold = state.ragSimilarityThreshold,
+                    topKBefore = state.ragTopKBefore,
+                    topKAfter = state.ragTopKAfter,
+                    onToggleMode = onRagQualityModeToggle,
+                    onIncreaseThreshold = onIncreaseRagThreshold,
+                    onDecreaseThreshold = onDecreaseRagThreshold,
+                    onIncreaseTopKBefore = onIncreaseRagTopKBefore,
+                    onDecreaseTopKBefore = onDecreaseRagTopKBefore,
+                    onIncreaseTopKAfter = onIncreaseRagTopKAfter,
+                    onDecreaseTopKAfter = onDecreaseRagTopKAfter
                 )
             }
             TaskDebugPanel(
@@ -271,31 +298,66 @@ fun ChatScreen(
 @Composable
 private fun RagQualityHeader(
     mode: RagQualityMode,
-    onToggle: () -> Unit
+    threshold: Float,
+    topKBefore: Int,
+    topKAfter: Int,
+    onToggleMode: () -> Unit,
+    onIncreaseThreshold: () -> Unit,
+    onDecreaseThreshold: () -> Unit,
+    onIncreaseTopKBefore: () -> Unit,
+    onDecreaseTopKBefore: () -> Unit,
+    onIncreaseTopKAfter: () -> Unit,
+    onDecreaseTopKAfter: () -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(
-            text = "Фильтр релевантности:",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        TextButton(onClick = onToggle) {
-            Text(if (mode == RagQualityMode.IMPROVED) "ON" else "OFF")
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Фильтр релевантности:",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            TextButton(onClick = onToggleMode) {
+                Text(if (mode == RagQualityMode.IMPROVED) "ON" else "OFF")
+            }
+            Text(
+                text = if (mode == RagQualityMode.IMPROVED) {
+                    "Improved (rewrite + filter)"
+                } else {
+                    "Baseline (без фильтра)"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-        Text(
-            text = if (mode == RagQualityMode.IMPROVED) {
-                "Improved (rewrite + filter)"
-            } else {
-                "Baseline (без фильтра)"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text("Threshold: ${"%.2f".format(threshold)}", style = MaterialTheme.typography.labelMedium)
+            TextButton(onClick = onDecreaseThreshold) { Text("-") }
+            TextButton(onClick = onIncreaseThreshold) { Text("+") }
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text("TopK before: $topKBefore", style = MaterialTheme.typography.labelMedium)
+            TextButton(onClick = onDecreaseTopKBefore) { Text("-") }
+            TextButton(onClick = onIncreaseTopKBefore) { Text("+") }
+            Spacer(Modifier.width(8.dp))
+            Text("TopK after: $topKAfter", style = MaterialTheme.typography.labelMedium)
+            TextButton(onClick = onDecreaseTopKAfter) { Text("-") }
+            TextButton(onClick = onIncreaseTopKAfter) { Text("+") }
+        }
     }
 }
 
@@ -583,6 +645,7 @@ private fun ChatBubble(
 ) {
     val isUser = msg.role == Role.USER
     val clipboardManager = LocalClipboardManager.current
+    var highlightedCitation by remember(msg.id) { mutableStateOf<Int?>(null) }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -624,7 +687,49 @@ private fun ChatBubble(
                     )
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(msg.text, style = MaterialTheme.typography.bodyMedium, color = textColor)
+                val citationPattern = remember { Regex("\\[(\\d+)]") }
+                val annotatedText = remember(msg.text, textColor) {
+                    buildAnnotatedString {
+                        var cursor = 0
+                        citationPattern.findAll(msg.text).forEach { match ->
+                            if (match.range.first > cursor) {
+                                append(msg.text.substring(cursor, match.range.first))
+                            }
+                            val citation = match.value
+                            val citationIndex = match.groupValues.getOrNull(1).orEmpty()
+                            pushStringAnnotation(tag = "citation", annotation = citationIndex)
+                            withStyle(
+                                SpanStyle(
+                                    color = textColor,
+                                    textDecoration = TextDecoration.Underline,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            ) {
+                                append(citation)
+                            }
+                            pop()
+                            cursor = match.range.last + 1
+                        }
+                        if (cursor < msg.text.length) {
+                            append(msg.text.substring(cursor))
+                        }
+                    }
+                }
+                if (msg.ragApplied && msg.role == Role.ASSISTANT && msg.ragSources.isNotEmpty()) {
+                    ClickableText(
+                        text = annotatedText,
+                        style = MaterialTheme.typography.bodyMedium.copy(color = textColor),
+                        onClick = { offset ->
+                            val annotation = annotatedText
+                                .getStringAnnotations(tag = "citation", start = offset, end = offset)
+                                .firstOrNull()
+                            val citation = annotation?.item?.toIntOrNull()
+                            highlightedCitation = citation?.takeIf { it in 1..msg.ragSources.size }
+                        }
+                    )
+                } else {
+                    Text(msg.text, style = MaterialTheme.typography.bodyMedium, color = textColor)
+                }
                 if (msg.ragApplied && msg.ragSources.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -632,11 +737,14 @@ private fun ChatBubble(
                         style = MaterialTheme.typography.labelSmall,
                         color = textColor
                     )
-                    msg.ragSources.take(5).forEach { source ->
+                    msg.ragSources.take(5).forEachIndexed { index, source ->
+                        val citationNumber = index + 1
+                        val isHighlighted = highlightedCitation == citationNumber
                         Text(
-                            text = "• ${source.file}${source.section?.let { " / $it" } ?: ""}",
+                            text = "[$citationNumber] ${source.file}${source.section?.let { " / $it" } ?: ""}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = textColor
+                            color = if (isHighlighted) MaterialTheme.colorScheme.primary else textColor,
+                            fontWeight = if (isHighlighted) FontWeight.SemiBold else FontWeight.Normal
                         )
                     }
                 }
