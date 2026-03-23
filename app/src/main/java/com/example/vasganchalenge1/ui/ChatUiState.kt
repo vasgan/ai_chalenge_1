@@ -4,6 +4,7 @@ import com.example.vasganchalenge1.data.LongTermMode
 import com.example.vasganchalenge1.data.MemoryField
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
+import com.example.vasganchalenge1.data.repositories.ModelType
 import com.example.vasganchalenge1.data.taskfsm.TaskState
 import com.example.vasganchalenge1.rag.model.RagQualityMode
 
@@ -52,6 +53,8 @@ data class ChatUiState(
     val mcpServerUrl: String = "",
     val mcpToolsCount: Int = 0,
     val mcpServers: List<McpServerDebugInfo> = emptyList(),
+    val selectedModelType: ModelType = ModelType.CLOUD,
+    val showModelPicker: Boolean = true,
     val ragEnabled: Boolean = false,
     val ragQualityMode: RagQualityMode = RagQualityMode.IMPROVED,
     val ragTopKBefore: Int = 8,

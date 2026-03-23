@@ -14,11 +14,15 @@ import com.example.vasganchalenge1.data.pipeline.McpPipelineOrchestrator
 import com.example.vasganchalenge1.data.pipeline.PipelineExecutionResult
 import com.example.vasganchalenge1.data.repositories.McpConnectionStatus
 import com.example.vasganchalenge1.data.repositories.AppSettings
+import com.example.vasganchalenge1.data.repositories.ChatModelSelectionRepository
 import com.example.vasganchalenge1.data.repositories.ChatStoreRepository
 import com.example.vasganchalenge1.data.repositories.ContextMode
+import com.example.vasganchalenge1.data.repositories.DataResponse
 import com.example.vasganchalenge1.data.repositories.EchoRepository
+import com.example.vasganchalenge1.data.repositories.LocalLlmRepository
 import com.example.vasganchalenge1.data.repositories.LongTermMemoryManager
 import com.example.vasganchalenge1.data.repositories.McpRepository
+import com.example.vasganchalenge1.data.repositories.ModelType
 import com.example.vasganchalenge1.data.repositories.ValidationResult
 import com.example.vasganchalenge1.data.repositories.WorkingMemoryManager
 import com.example.vasganchalenge1.rag.data.settings.ChatRagSettingsRepository
@@ -49,6 +53,7 @@ private const val RAG_TOPK_AFTER_MAX = 10
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val repo: EchoRepository,
+    private val localLlmRepository: LocalLlmRepository,
     private val store: ChatStoreRepository,
     private val mcpRepository: McpRepository,
     private val pipelineOrchestrator: McpPipelineOrchestrator,
@@ -56,6 +61,7 @@ class ChatViewModel @Inject constructor(
     private val workingMemoryManager: WorkingMemoryManager,
     private val longTermMemoryManager: LongTermMemoryManager,
     private val taskFsmManager: TaskFsmManager,
+    private val chatModelSelectionRepository: ChatModelSelectionRepository,
     private val chatRagSettingsRepository: ChatRagSettingsRepository,
     private val ragChatContextUseCase: RagChatContextUseCase,
     savedStateHandle: SavedStateHandle
@@ -121,6 +127,20 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            chatModelSelectionRepository.observe(chatId).collect { modelType ->
+                if (modelType == null) {
+                    _state.value = _state.value.copy(
+                        selectedModelType = ModelType.CLOUD,
+                        showModelPicker = true
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        selectedModelType = modelType
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
             chatRagSettingsRepository.observeConfig(chatId).collect { config ->
                 _state.value = _state.value.copy(
                     ragEnabled = config.enabled,
@@ -135,6 +155,28 @@ class ChatViewModel @Inject constructor(
 
     fun onInputChange(v: String) {
         _state.value = _state.value.copy(input = v, error = null)
+    }
+
+    fun onOpenModelPicker() {
+        _state.value = _state.value.copy(showModelPicker = true)
+    }
+
+    fun onDismissModelPicker() {
+        viewModelScope.launch {
+            val selected = _state.value.selectedModelType
+            chatModelSelectionRepository.set(chatId, selected)
+            _state.value = _state.value.copy(showModelPicker = false)
+        }
+    }
+
+    fun onModelTypeSelected(modelType: ModelType) {
+        viewModelScope.launch {
+            chatModelSelectionRepository.set(chatId, modelType)
+            _state.value = _state.value.copy(
+                selectedModelType = modelType,
+                showModelPicker = false
+            )
+        }
     }
 
     fun onRagModeToggle(enabled: Boolean) {
@@ -283,8 +325,14 @@ class ChatViewModel @Inject constructor(
         val availablePipelines = pipelineOrchestrator.availablePipelines(mcpState.tools)
         val canRouteTool = mcpState.connectionStatus == McpConnectionStatus.CONNECTED &&
                 (mcpState.tools.isNotEmpty() || availablePipelines.isNotEmpty())
+        val selectedModelType = _state.value.selectedModelType
 
         if (!canRouteTool) {
+            onRegularChatMessage(text)
+            return
+        }
+        if (selectedModelType == ModelType.LOCAL) {
+            // В LOCAL-режиме отключаем LLM-router (он облачный).
             onRegularChatMessage(text)
             return
         }
@@ -341,6 +389,7 @@ class ChatViewModel @Inject constructor(
 
     private fun onRegularChatMessage(text: String) {
         val currentSettings = settings.value
+        val selectedModelType = _state.value.selectedModelType
         val userMsg = UiChatMessage(role = Role.USER, text = text)
         val preMessagesRaw = _state.value.messages + userMsg
 
@@ -371,12 +420,16 @@ class ChatViewModel @Inject constructor(
             val currentFacts = _state.value.facts
             val currentFactsMessageCount = _state.value.factsMessageCount
             val preFactsResult = runCatching {
-                updateFactsIfNeeded(
-                    facts = currentFacts,
-                    factsMessageCount = currentFactsMessageCount,
-                    fullMessages = preMessagesRaw,
-                    settings = currentSettings
-                )
+                if (selectedModelType == ModelType.CLOUD) {
+                    updateFactsIfNeeded(
+                        facts = currentFacts,
+                        factsMessageCount = currentFactsMessageCount,
+                        fullMessages = preMessagesRaw,
+                        settings = currentSettings
+                    )
+                } else {
+                    currentFacts to currentFactsMessageCount
+                }
             }.getOrElse { e ->
                 _state.value = _state.value.copy(
                     isLoading = false,
@@ -420,7 +473,11 @@ class ChatViewModel @Inject constructor(
                     query = text,
                     settings = currentSettings,
                     config = RagRetrievalConfig(
-                        mode = _state.value.ragQualityMode,
+                        mode = if (selectedModelType == ModelType.LOCAL) {
+                            RagQualityMode.BASELINE
+                        } else {
+                            _state.value.ragQualityMode
+                        },
                         topKBefore = _state.value.ragTopKBefore,
                         topKAfter = _state.value.ragTopKAfter,
                         similarityThreshold = _state.value.ragSimilarityThreshold
@@ -461,22 +518,39 @@ class ChatViewModel @Inject constructor(
             }
 
             runCatching {
-                repo.send(
-                    settings = currentSettings,
-                    history = requestHistory,
-                    facts = if (currentSettings.contextMode == ContextMode.FACTS) preFacts else "",
-                    longTermMemoryJson = buildLongTermMemoryJson(
-                        LongTermMemory(
-                            profileDescription = _state.value.profileDescription,
-                            communicationLanguage = _state.value.communicationLanguage,
-                            customFields = _state.value.longTermFields
+                when (selectedModelType) {
+                    ModelType.CLOUD -> {
+                        repo.send(
+                            settings = currentSettings,
+                            history = requestHistory,
+                            facts = if (currentSettings.contextMode == ContextMode.FACTS) preFacts else "",
+                            longTermMemoryJson = buildLongTermMemoryJson(
+                                LongTermMemory(
+                                    profileDescription = _state.value.profileDescription,
+                                    communicationLanguage = _state.value.communicationLanguage,
+                                    customFields = _state.value.longTermFields
+                                )
+                            ),
+                            invariants = _state.value.invariants,
+                            workingContext = workingContext,
+                            taskPhasePrompt = taskPhasePrompt,
+                            ragContext = ragContextText
                         )
-                    ),
-                    invariants = _state.value.invariants,
-                    workingContext = workingContext,
-                    taskPhasePrompt = taskPhasePrompt,
-                    ragContext = ragContextText
-                )
+                    }
+
+                    ModelType.LOCAL -> {
+                        val localPrompt = buildLocalPrompt(
+                            userMessage = text,
+                            ragContext = ragContextText
+                        )
+                        val localResponse = localLlmRepository.sendMessage(localPrompt)
+                        DataResponse(
+                            content = localResponse,
+                            tokensIn = 0,
+                            tokenOut = 0
+                        )
+                    }
+                }
             }.onSuccess { result ->
                 val latencyMs = android.os.SystemClock.elapsedRealtime() - start
                 val tokensIn = result.tokensIn ?: 0
@@ -492,13 +566,17 @@ class ChatViewModel @Inject constructor(
                 )
 
                 val assistantText = result.content.orEmpty()
-                val violatesInvariants = runCatching {
-                    repo.detectInvariantViolation(
-                        settings = currentSettings,
-                        invariants = _state.value.invariants,
-                        assistantMessage = assistantText
-                    )
-                }.getOrDefault(false)
+                val violatesInvariants = if (selectedModelType == ModelType.CLOUD) {
+                    runCatching {
+                        repo.detectInvariantViolation(
+                            settings = currentSettings,
+                            invariants = _state.value.invariants,
+                            assistantMessage = assistantText
+                        )
+                    }.getOrDefault(false)
+                } else {
+                    false
+                }
                 val assistantMsg = UiChatMessage(
                     role = Role.ASSISTANT,
                     text = assistantText,
@@ -513,24 +591,26 @@ class ChatViewModel @Inject constructor(
                 )
                 val updatedMessagesRaw = preMessagesRaw + assistantMsg
                 runCatching {
-                    val currentWorkingMemoryState = workingMemoryManager.getState(_state.value.taskId)
-                    val plan = repo.extractWorkingMemoryWritePlan(
-                        settings = currentSettings,
-                        currentState = currentWorkingMemoryState,
-                        userMessage = userMsg,
-                        assistantMessage = assistantMsg
-                    )
-                    if (plan != null) {
-                        val updateResult = workingMemoryManager.updateByPlan(_state.value.taskId, plan)
-                        if (updateResult is ValidationResult.Valid) {
-                            _state.value = _state.value.copy(
-                                workingMemoryContext = workingMemoryManager.buildWorkingContext(_state.value.taskId)
-                            )
+                    if (selectedModelType == ModelType.CLOUD) {
+                        val currentWorkingMemoryState = workingMemoryManager.getState(_state.value.taskId)
+                        val plan = repo.extractWorkingMemoryWritePlan(
+                            settings = currentSettings,
+                            currentState = currentWorkingMemoryState,
+                            userMessage = userMsg,
+                            assistantMessage = assistantMsg
+                        )
+                        if (plan != null) {
+                            val updateResult = workingMemoryManager.updateByPlan(_state.value.taskId, plan)
+                            if (updateResult is ValidationResult.Valid) {
+                                _state.value = _state.value.copy(
+                                    workingMemoryContext = workingMemoryManager.buildWorkingContext(_state.value.taskId)
+                                )
+                            }
                         }
                     }
                 }
                 runCatching {
-                    if (_state.value.longTermMode == LongTermMode.AUTO) {
+                    if (selectedModelType == ModelType.CLOUD && _state.value.longTermMode == LongTermMode.AUTO) {
                         val currentLongTermState = longTermMemoryManager.getState(_state.value.profileId)
                         val plan = repo.extractLongTermMemoryWritePlan(
                             settings = currentSettings,
@@ -557,12 +637,16 @@ class ChatViewModel @Inject constructor(
                     taskFsmManager.runPendingTool(_state.value.taskId)
                 }.getOrElse { _state.value.taskStateDebug }
                 val (updatedFacts, updatedFactsMessageCount) = runCatching {
-                    updateFactsIfNeeded(
-                        facts = preFacts,
-                        factsMessageCount = preFactsMessageCount,
-                        fullMessages = updatedMessagesRaw,
-                        settings = currentSettings
-                    )
+                    if (selectedModelType == ModelType.CLOUD) {
+                        updateFactsIfNeeded(
+                            facts = preFacts,
+                            factsMessageCount = preFactsMessageCount,
+                            fullMessages = updatedMessagesRaw,
+                            settings = currentSettings
+                        )
+                    } else {
+                        preFacts to preFactsMessageCount
+                    }
                 }.getOrElse {
                     preFacts to preFactsMessageCount
                 }
@@ -584,9 +668,14 @@ class ChatViewModel @Inject constructor(
                     metrics = updatedMetrics
                 )
             }.onFailure { e ->
+                val errorText = if (selectedModelType == ModelType.LOCAL) {
+                    "Локальная модель недоступна"
+                } else {
+                    e.message ?: "Ошибка запроса"
+                }
                 _state.value = _state.value.copy(
                     isLoading = false,
-                    error = e.message ?: "Ошибка запроса"
+                    error = errorText
                 )
             }
         }
@@ -610,6 +699,19 @@ class ChatViewModel @Inject constructor(
                 messages = updatedMessages,
                 metrics = _state.value.metrics
             )
+        }
+    }
+
+    private fun buildLocalPrompt(
+        userMessage: String,
+        ragContext: String
+    ): String {
+        if (ragContext.isBlank()) return userMessage
+        return buildString {
+            append("Use the context below if relevant.\n")
+            append(ragContext)
+            append("\n\nUser question:\n")
+            append(userMessage)
         }
     }
 

@@ -19,7 +19,7 @@ import javax.inject.Inject
 class EchoRepository  @Inject constructor(
     private val api: ApiService,
     moshi: Moshi
-) {
+) : ChatRepository {
     private val workingMemoryWritePlanAdapter = moshi.adapter(WorkingMemoryWritePlan::class.java)
     private val longTermWritePlanAdapter = moshi.adapter(LongTermMemoryWritePlan::class.java)
     private val mapAdapter = moshi.adapter<Map<String, Any?>>(
@@ -29,6 +29,21 @@ class EchoRepository  @Inject constructor(
             Any::class.java
         )
     )
+
+    override suspend fun sendMessage(message: String): String {
+        val response = api.chatCompletion(
+            ChatRequest(
+                model = DEFAULT_MODEL,
+                messages = listOf(
+                    Message(role = "user", content = message)
+                ),
+                stop = null,
+                max_tokens = null,
+                temperature = null
+            )
+        )
+        return response.choices.firstOrNull()?.message?.content?.trim().orEmpty()
+    }
 
     suspend fun send(
         settings: AppSettings,
@@ -436,6 +451,10 @@ class EchoRepository  @Inject constructor(
             reason = reason,
             confidence = confidence.coerceIn(0.0, 1.0)
         )
+    }
+
+    private companion object {
+        const val DEFAULT_MODEL = "gpt-4o-mini"
     }
 }
 

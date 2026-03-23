@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import com.example.vasganchalenge1.data.Role
 import com.example.vasganchalenge1.data.RunMetric
 import com.example.vasganchalenge1.data.UiChatMessage
+import com.example.vasganchalenge1.data.repositories.ModelType
 import com.example.vasganchalenge1.data.taskfsm.ExpectedAction
 import com.example.vasganchalenge1.data.taskfsm.TaskPhase
 import com.example.vasganchalenge1.data.taskfsm.TaskState
@@ -95,6 +97,9 @@ fun MainRoute(
         onOpenBranches = onOpenBranches,
         onOpenControlQuestions = onOpenControlQuestions,
         onCreateBranch = onCreateBranch,
+        onOpenModelPicker = vm::onOpenModelPicker,
+        onModelTypeSelected = vm::onModelTypeSelected,
+        onDismissModelPicker = vm::onDismissModelPicker,
         onRagModeToggle = vm::onRagModeToggle,
         onRagQualityModeToggle = vm::onRagQualityModeToggle,
         onIncreaseRagThreshold = vm::onIncreaseRagThreshold,
@@ -122,6 +127,9 @@ fun ChatScreen(
     onOpenBranches: () -> Unit,
     onOpenControlQuestions: () -> Unit,
     onCreateBranch: (Long) -> Unit,
+    onOpenModelPicker: () -> Unit,
+    onModelTypeSelected: (ModelType) -> Unit,
+    onDismissModelPicker: () -> Unit,
     onRagModeToggle: (Boolean) -> Unit,
     onRagQualityModeToggle: () -> Unit,
     onIncreaseRagThreshold: () -> Unit,
@@ -136,6 +144,24 @@ fun ChatScreen(
     onResetTask: () -> Unit
 ) {
     val listState = rememberLazyListState()
+
+    if (state.showModelPicker) {
+        AlertDialog(
+            onDismissRequest = onDismissModelPicker,
+            title = { Text("Выберите модель") },
+            text = { Text("Выберите, какую модель использовать в этом чате.") },
+            confirmButton = {
+                TextButton(onClick = { onModelTypeSelected(ModelType.LOCAL) }) {
+                    Text("Local")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { onModelTypeSelected(ModelType.CLOUD) }) {
+                    Text("Cloud")
+                }
+            }
+        )
+    }
 
     // автоскролл вниз, когда добавились сообщения
     LaunchedEffect(state.messages.size) {
@@ -249,6 +275,10 @@ fun ChatScreen(
                 serverUrl = state.mcpServerUrl,
                 servers = state.mcpServers
             )
+            ModelSelectionHeader(
+                selectedModelType = state.selectedModelType,
+                onOpenModelPicker = onOpenModelPicker
+            )
             if (state.ragEnabled) {
                 RagQualityHeader(
                     mode = state.ragQualityMode,
@@ -291,6 +321,25 @@ fun ChatScreen(
                 // чтобы низ не прилипал к bottomBar
                 item { Spacer(Modifier.height(60.dp)) }
             }
+        }
+    }
+}
+
+@Composable
+private fun ModelSelectionHeader(
+    selectedModelType: ModelType,
+    onOpenModelPicker: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("Модель: ${if (selectedModelType == ModelType.CLOUD) "Cloud" else "Local"}")
+        TextButton(onClick = onOpenModelPicker) {
+            Text("Сменить")
         }
     }
 }

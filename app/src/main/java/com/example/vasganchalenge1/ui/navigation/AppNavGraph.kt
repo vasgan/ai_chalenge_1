@@ -180,6 +180,9 @@ fun AppNavGraph() {
                         Routes.controlQuestions(ControlQuestionsMode.READ_ONLY.name)
                     )
                 },
+                onOpenModelPicker = vm::onOpenModelPicker,
+                onModelTypeSelected = vm::onModelTypeSelected,
+                onDismissModelPicker = vm::onDismissModelPicker,
                 onRagModeToggle = vm::onRagModeToggle,
                 onRagQualityModeToggle = vm::onRagQualityModeToggle,
                 onIncreaseRagThreshold = vm::onIncreaseRagThreshold,
