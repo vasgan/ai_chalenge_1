@@ -468,6 +468,14 @@ class ChatViewModel @Inject constructor(
             var ragTopKAfter: Int? = null
             var ragSimilarityThreshold: Float? = null
             var ragMode: String? = null
+            val longTermMemoryJson = buildLongTermMemoryJson(
+                LongTermMemory(
+                    profileDescription = _state.value.profileDescription,
+                    communicationLanguage = _state.value.communicationLanguage,
+                    customFields = _state.value.longTermFields
+                )
+            )
+            val invariants = _state.value.invariants
             if (ragEnabled) {
                 val contextResult = ragChatContextUseCase.build(
                     query = text,
@@ -524,14 +532,8 @@ class ChatViewModel @Inject constructor(
                             settings = currentSettings,
                             history = requestHistory,
                             facts = if (currentSettings.contextMode == ContextMode.FACTS) preFacts else "",
-                            longTermMemoryJson = buildLongTermMemoryJson(
-                                LongTermMemory(
-                                    profileDescription = _state.value.profileDescription,
-                                    communicationLanguage = _state.value.communicationLanguage,
-                                    customFields = _state.value.longTermFields
-                                )
-                            ),
-                            invariants = _state.value.invariants,
+                            longTermMemoryJson = longTermMemoryJson,
+                            invariants = invariants,
                             workingContext = workingContext,
                             taskPhasePrompt = taskPhasePrompt,
                             ragContext = ragContextText
@@ -541,9 +543,13 @@ class ChatViewModel @Inject constructor(
                     ModelType.LOCAL -> {
                         val localPrompt = buildLocalPrompt(
                             userMessage = text,
-                            ragContext = ragContextText
+                            ragContext = ragContextText,
+                            longTermMemoryJson = longTermMemoryJson,
+                            invariants = invariants,
+                            responseFormat = currentSettings.format.takeIf { currentSettings.enabled }.orEmpty(),
+                            lengthLimit = currentSettings.lengthLimit.takeIf { currentSettings.enabled }.orEmpty()
                         )
-                        val localResponse = localLlmRepository.sendMessage(localPrompt)
+                        val localResponse = localLlmRepository.sendMessage(localPrompt, currentSettings)
                         DataResponse(
                             content = localResponse,
                             tokensIn = 0,
@@ -704,13 +710,45 @@ class ChatViewModel @Inject constructor(
 
     private fun buildLocalPrompt(
         userMessage: String,
-        ragContext: String
+        ragContext: String,
+        longTermMemoryJson: String,
+        invariants: List<String>,
+        responseFormat: String,
+        lengthLimit: String
     ): String {
-        if (ragContext.isBlank()) return userMessage
         return buildString {
-            append("Use the context below if relevant.\n")
-            append(ragContext)
-            append("\n\nUser question:\n")
+            if (longTermMemoryJson.isNotBlank() && longTermMemoryJson != "{}") {
+                append("[PROFILE_MEMORY_JSON]\n")
+                append(longTermMemoryJson)
+                append("\n[/PROFILE_MEMORY_JSON]\n\n")
+            }
+            if (invariants.isNotEmpty()) {
+                append("[PROFILE_INVARIANTS]\n")
+                append(
+                    invariants
+                        .mapIndexed { index, invariant -> "${index + 1}. ${invariant.trim()}" }
+                        .joinToString("\n")
+                )
+                append("\n[/PROFILE_INVARIANTS]\n")
+                append("Refuse to provide solutions that violate these invariants.\n\n")
+            }
+            if (ragContext.isNotBlank()) {
+                append("Use the context below if relevant.\n")
+                append(ragContext)
+                append("\n\n")
+            }
+            if (responseFormat.isNotBlank() || lengthLimit.isNotBlank()) {
+                append("[RESPONSE_RULES]\n")
+                if (responseFormat.isNotBlank()) {
+                    append("Format: ").append(responseFormat.trim()).append('\n')
+                }
+                if (lengthLimit.isNotBlank()) {
+                    append("Length limit: ").append(lengthLimit.trim()).append('\n')
+                }
+                append("Strictly follow these response rules.\n")
+                append("[/RESPONSE_RULES]\n\n")
+            }
+            append("User question:\n")
             append(userMessage)
         }
     }

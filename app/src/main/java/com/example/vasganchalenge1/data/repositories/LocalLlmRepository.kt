@@ -21,11 +21,21 @@ class LocalLlmRepository @Inject constructor(
     private val responseAdapter = moshi.adapter(OllamaGenerateResponse::class.java)
 
     override suspend fun sendMessage(message: String): String {
+        return sendMessage(message, AppSettings())
+    }
+
+    suspend fun sendMessage(message: String, settings: AppSettings): String {
         return withContext(Dispatchers.IO) {
             val payload = OllamaGenerateRequest(
                 model = OLLAMA_MODEL,
                 prompt = message,
-                stream = false
+                stream = false,
+                options = OllamaGenerateOptions(
+                    temperature = settings.temperature.toDoubleOrNull()
+                        ?.takeIf { settings.enabled }
+                        ?.toFloat(),
+                    numPredict = settings.maxTokens.takeIf { settings.enabled && it > 0 }
+                )
             )
             val body = requestAdapter.toJson(payload)
                 .toRequestBody(JSON_MEDIA_TYPE)
@@ -59,7 +69,15 @@ class LocalLlmRepository @Inject constructor(
 data class OllamaGenerateRequest(
     val model: String,
     val prompt: String,
-    val stream: Boolean
+    val stream: Boolean,
+    val options: OllamaGenerateOptions? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OllamaGenerateOptions(
+    val temperature: Float? = null,
+    @com.squareup.moshi.Json(name = "num_predict")
+    val numPredict: Int? = null
 )
 
 @JsonClass(generateAdapter = true)
